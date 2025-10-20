@@ -105,6 +105,13 @@ class DigestGenerator:
                     if not pub_date or pub_date < cutoff_date:
                         continue
 
+                    # Extract author(s) from RSS feed
+                    authors = []
+                    if hasattr(entry, 'author') and entry.author:
+                        authors.append(entry.author)
+                    elif hasattr(entry, 'authors') and entry.authors:
+                        authors.extend([a.get('name', a) if isinstance(a, dict) else a for a in entry.authors])
+
                     # Extract article data
                     article = {
                         'title': entry.get('title', ''),
@@ -113,6 +120,7 @@ class DigestGenerator:
                         'published': pub_date,
                         'newsletter_name': newsletter['name'],
                         'newsletter_category': newsletter['category'],
+                        'authors': authors,  # List of author names
                         'word_count': 0,  # Will calculate if needed
                         'comment_count': 0,
                         'reaction_count': 0,
@@ -184,6 +192,23 @@ class DigestGenerator:
                 if body_html:
                     text = BeautifulSoup(body_html, 'html.parser').get_text()
                     article['word_count'] = len(text.split())
+
+                # Extract authors from API if not already present
+                if not article.get('authors'):
+                    authors_data = []
+                    # Try to get primary author
+                    if 'publishedBylines' in post_data:
+                        for byline in post_data['publishedBylines']:
+                            if 'name' in byline:
+                                authors_data.append(byline['name'])
+                    # Fallback to single author field
+                    elif 'author' in post_data and isinstance(post_data['author'], dict):
+                        author_name = post_data['author'].get('name')
+                        if author_name:
+                            authors_data.append(author_name)
+
+                    if authors_data:
+                        article['authors'] = authors_data
 
         except Exception as e:
             # Silently fail - engagement metrics are optional
@@ -328,7 +353,14 @@ class DigestGenerator:
         # Build engagement lines
         days_ago = (datetime.now(timezone.utc) - article['published']).days
         engagement_html = f'<div style="font-size: 13px; color: #666; line-height: 1.6;">'
-        engagement_html += f'<div>{article["newsletter_name"]} • {days_ago}d ago</div>'
+
+        # First line: Newsletter name, author(s), and date
+        first_line_parts = [article["newsletter_name"]]
+        if article.get('authors') and len(article['authors']) > 0:
+            author_text = ' & '.join(article['authors'])
+            first_line_parts.append(f"by {author_text}")
+        first_line_parts.append(f"{days_ago}d ago")
+        engagement_html += f'<div>{" • ".join(first_line_parts)}</div>'
 
         # Add engagement metrics if present
         metrics = []
@@ -364,7 +396,14 @@ class DigestGenerator:
         # Build engagement lines (SEPARATE LINES)
         days_ago = (datetime.now(timezone.utc) - article['published']).days
         engagement_html = f'<div style="font-size: 13px; color: #666; line-height: 1.6;">'
-        engagement_html += f'<div>{article["newsletter_name"]} • {days_ago}d ago</div>'
+
+        # First line: Newsletter name, author(s), and date
+        first_line_parts = [article["newsletter_name"]]
+        if article.get('authors') and len(article['authors']) > 0:
+            author_text = ' & '.join(article['authors'])
+            first_line_parts.append(f"by {author_text}")
+        first_line_parts.append(f"{days_ago}d ago")
+        engagement_html += f'<div>{" • ".join(first_line_parts)}</div>'
 
         # Add engagement metrics if present
         metrics = []
