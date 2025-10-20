@@ -282,23 +282,24 @@ class DigestGenerator:
         # Header
         now = datetime.now()
         html_parts.append(f'''
-        <div style="text-align: center; padding: 40px 20px; margin-bottom: 40px; border-bottom: 1px solid #e0e0e0;">
+        <div style="text-align: center; padding: 40px 20px; margin-bottom: 40px; border-bottom: 1px solid #ddd;">
             <h1 style="font-size: 36px; font-weight: 700; color: #1a1a1a; margin: 0 0 10px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Newsletter Digest</h1>
-            <div style="font-size: 16px; color: #666; margin-bottom: 20px;">{now.strftime('%A, %B %d, %Y')}</div>
-            <div style="font-size: 14px; color: #666;">{len(featured)} Featured • {len(self.articles)} Total Articles</div>
+            <div style="font-size: 16px; color: #666; margin-bottom: 8px;">{now.strftime('%A, %B %d, %Y')}</div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 8px;">{len(featured)} Featured • {len(self.articles)} Total Articles</div>
+            <div style="font-size: 13px; color: #888; font-style: italic;">Daily Average scoring • {len(self.newsletters)} newsletters</div>
         </div>
         ''')
 
         # Featured Section
         if featured:
-            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Featured Articles</h2>')
+            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #ddd; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Featured Articles</h2>')
 
             for i, article in enumerate(featured, 1):
                 html_parts.append(self._format_article_featured(article, number=i))
 
         # Wildcard Section
         if wildcard:
-            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Wildcard Pick</h2>')
+            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #ddd; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Wildcard Pick</h2>')
             html_parts.append(self._format_article_featured(wildcard, wildcard=True))
 
         # Categorized Sections
@@ -306,17 +307,10 @@ class DigestGenerator:
             articles = categorized[category][:10]  # Limit per category
 
             if articles:
-                html_parts.append(f'<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">{category}</h2>')
+                html_parts.append(f'<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 2px solid #ddd; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">{category}</h2>')
 
                 for article in articles:
                     html_parts.append(self._format_article_compact(article))
-
-        # Footer
-        html_parts.append(f'''
-        <div style="margin-top: 60px; padding-top: 30px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 14px; color: #666;">
-            Generated with Daily Average scoring • {len(self.newsletters)} newsletters
-        </div>
-        ''')
 
         html_parts.append('</div>')
 
@@ -343,11 +337,17 @@ class DigestGenerator:
             meta_parts.append(f"{article['restacks']} restacks")
 
         meta_parts.append(f"{days_ago}d ago")
+
+        # Add score
+        score = article.get('score', 0)
+        if score > 0:
+            meta_parts.append(f"Score: {score:.1f}")
+
         meta_text = ' • '.join(meta_parts)
 
         # Build HTML
         return f'''
-        <div style="margin-bottom: 40px; padding-bottom: 30px; border-bottom: 1px solid #e0e0e0;">
+        <div style="margin-bottom: 40px; padding-bottom: 30px; border-bottom: 1px solid #ddd;">
             <div style="font-size: 22px; font-weight: 700; line-height: 1.3; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
                 <a href="{article['link']}" style="color: #1a1a1a; text-decoration: none;">{title_text}</a>
             </div>
@@ -370,10 +370,16 @@ class DigestGenerator:
             meta_parts.append(f"{article['restacks']} restacks")
 
         meta_parts.append(f"{days_ago}d ago")
+
+        # Add score
+        score = article.get('score', 0)
+        if score > 0:
+            meta_parts.append(f"Score: {score:.1f}")
+
         meta_text = ' • '.join(meta_parts)
 
         return f'''
-        <div style="padding: 15px 0; border-bottom: 1px solid #e0e0e0;">
+        <div style="padding: 15px 0; border-bottom: 1px solid #ddd;">
             <div style="font-size: 18px; font-weight: 600; line-height: 1.4; margin-bottom: 5px;">
                 <a href="{article['link']}" style="color: #1a1a1a; text-decoration: none;">{article['title']}</a>
             </div>
