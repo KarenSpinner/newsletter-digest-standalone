@@ -1,0 +1,30 @@
+# Virtual Environment
+venv/
+env/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# User Data (DO NOT COMMIT)
+my_newsletters.csv
+*_newsletters.csv
+
+# Generated Outputs
+digest_output.html
+digest_*.html
+*.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Temp files
+*.tmp
+*.log
