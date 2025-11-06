@@ -40,7 +40,7 @@ class DigestGenerator:
         csv_file = Path(csv_path)
         if not csv_file.exists():
             print(f"❌ Error: {csv_path} not found!")
-            print(f"   Please export your newsletters from StackDigest first.")
+            print(f"   Please create a CSV file with your newsletter subscriptions.")
             return False
 
         with open(csv_file, 'r', encoding='utf-8') as f:

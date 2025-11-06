@@ -22,11 +22,26 @@ Creates a formatted newsletter digest from your Substack subscriptions that you 
 
 ### Setup
 
-1. **Export your newsletters from StackDigest:**
-   - Go to Manage Newsletters
-   - Click "Export CSV"
-   - Save as `my_newsletters.csv`
-   - Place it in this directory
+1. **Create a CSV file with your newsletter subscriptions:**
+
+   Create a file named `my_newsletters.csv` with the following format:
+
+   ```csv
+   Newsletter Name,Website URL,Category,Collections
+   The Generalist,https://thegeneralist.substack.com,Business,
+   Stratechery,https://stratechery.com,Technology,
+   Not Boring,https://notboring.substack.com,Business,Tech Favorites
+   ```
+
+   **Required fields:**
+   - `Newsletter Name` - The name of the newsletter
+   - `Website URL` - The Substack URL (e.g., `https://newsletter.substack.com`)
+
+   **Optional fields:**
+   - `Category` - For grouping articles (defaults to "Uncategorized")
+   - `Collections` - Additional tags or groupings (optional)
+
+   **Note:** Currently only supports Substack newsletters with public RSS feeds.
 
 2. **Install dependencies:**
    ```bash
@@ -224,14 +239,6 @@ total_engagement = (
 - Featured count (CLI prompt)
 - Articles per category (line ~350): `articles[:10]`
 
-## Future Plans
-
-After StackDigest shutdown, this tool could:
-- Run on a schedule (cron/scheduled task)
-- Auto-post to Substack via draft API
-- Support email delivery
-- Add custom templates
-
 ## Support
 
 Questions? Contact karen@wonderingabout.ai
@@ -239,7 +246,3 @@ Questions? Contact karen@wonderingabout.ai
 ## License
 
 Free to use and modify. No warranty provided.
-
----
-
-**Made with ❤️ for the StackDigest community**
