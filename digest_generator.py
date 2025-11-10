@@ -353,7 +353,7 @@ class DigestGenerator:
 
         # Categorized Sections
         for category in sorted(categorized.keys()):
-            articles = categorized[category][:10]  # Limit per category
+            articles = categorized[category]
 
             if articles:
                 html_parts.append(f'<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 1px solid #eee; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">{category}</h2>')
