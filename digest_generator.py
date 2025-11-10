@@ -49,23 +49,26 @@ class DigestGenerator:
                 # Build RSS URL from website URL (Substack pattern)
                 website_url = row['Website URL'].strip()
 
+                # Skip empty URLs
+                if not website_url:
+                    continue
+
                 # Extract base URL and build RSS feed
-                if 'substack.com' in website_url:
-                    # Handle both custom domains and substack.com URLs
-                    if website_url.startswith('http'):
-                        base_url = website_url.rstrip('/')
-                    else:
-                        base_url = f"https://{website_url}"
+                # Note: Custom domains (e.g., insights.priva.cat) still use /feed endpoint
+                if website_url.startswith('http'):
+                    base_url = website_url.rstrip('/')
+                else:
+                    base_url = f"https://{website_url}"
 
-                    rss_url = f"{base_url}/feed"
+                rss_url = f"{base_url}/feed"
 
-                    self.newsletters.append({
-                        'name': row['Newsletter Name'],
-                        'url': website_url,
-                        'rss_url': rss_url,
-                        'category': row.get('Category', 'Uncategorized'),
-                        'collections': row.get('Collections', ''),
-                    })
+                self.newsletters.append({
+                    'name': row['Newsletter Name'],
+                    'url': website_url,
+                    'rss_url': rss_url,
+                    'category': row.get('Category', 'Uncategorized'),
+                    'collections': row.get('Collections', ''),
+                })
 
         print(f"✅ Loaded {len(self.newsletters)} newsletters from CSV")
         return True
