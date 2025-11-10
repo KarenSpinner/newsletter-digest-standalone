@@ -77,7 +77,14 @@ class DigestGenerator:
         """Fetch recent articles from all newsletters"""
         print(f"\n📰 Fetching articles from past {days_back} days...")
 
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+        # Use date boundaries (midnight to midnight) not current time
+        # Example: If today is Nov 10 at 5pm and days_back=7,
+        # include all articles from Nov 4 00:00 onwards, not from Nov 3 5pm
+        today = datetime.now(timezone.utc).date()
+        cutoff_date = datetime.combine(today - timedelta(days=days_back), datetime.min.time()).replace(tzinfo=timezone.utc)
+
+        print(f"   Date range: {cutoff_date.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')}")
+
         articles = []
         success_count = 0
 
