@@ -15,6 +15,9 @@ Features:
 
 Usage:
     python digest_generator.py
+    
+To prevent encoding issues when logging output to a file on Windows, use this command first:
+    set PYTHONIOENCODING=utf_8
 """
 
 import csv
@@ -43,7 +46,7 @@ class DigestGenerator:
         """Load newsletters from CSV export"""
         csv_file = Path(csv_path)
         if not csv_file.exists():
-            print(f"❌ Error: {csv_path} not found!".encode('utf-8'))
+            print(f"❌ Error: {csv_path} not found!")
             print(f"   Please create a CSV file with your newsletter subscriptions.")
             return False
 
@@ -74,15 +77,15 @@ class DigestGenerator:
 
         # Check added 2025-11-13 KJS
         if len(self.newsletters) < 1: # no errors, but no newsletters found
-            print(f"❌ No newsletters to scan; stopping digest generation".encode('utf-8'))
+            print(f"❌ No newsletters to scan; stopping digest generation")
             return False
 
-        print(f"✅ Loaded {len(self.newsletters)} newsletters from CSV".encode('utf-8'))
+        print(f"✅ Loaded {len(self.newsletters)} newsletters from CSV")
         return True
 
     def fetch_articles(self, days_back=7):
         """Fetch recent articles from all newsletters"""
-        print(f"\n📰 Fetching articles from past {days_back} days...".encode('utf-8'))
+        print(f"\n📰 Fetching articles from past {days_back} days...")
 
         # Use date boundaries (midnight to midnight) not current time
         # Example: If today is Nov 10 at 5pm and days_back=7,
@@ -104,20 +107,20 @@ class DigestGenerator:
                     print(f"(Waiting 5 sec to avoid overloading Substack)")
                     time.sleep(5.0)
 
-                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}...".encode('utf-8'), end='', flush=True)
+                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}...", end='', flush=True)
 
                 # Fetch RSS feed
                 headers = {'User-Agent': 'Mozilla/5.0 (compatible; DigestBot/1.0)'}
                 response = requests.get(newsletter['rss_url'], headers=headers, timeout=10)
 
                 if response.status_code != 200:
-                    print(f" ⚠️  HTTP {response.status_code}".encode('utf-8'), end='', flush=True)
+                    print(f" ⚠️  HTTP {response.status_code}", end='', flush=True)
                     # KJS 2025-11-13 If response is 429, Too Many Requests, wait
                     # a while and then try again. We don't want to omit anyone.
                     time.sleep(2.0) # 1 second was not enough in some cases; try 2
                     response = requests.get(newsletter['rss_url'], headers=headers, timeout=10)
                     if response.status_code != 200:
-                        print(f" ⚠️  HTTP {response.status_code} on retry; skipping this newsletter".encode('utf-8'))
+                        print(f" ⚠️  HTTP {response.status_code} on retry; skipping this newsletter")
                         continue
 
                 feed = feedparser.parse(response.content)
@@ -161,13 +164,13 @@ class DigestGenerator:
 
                     # Extract article data
                     article = {
-                        'title': entry.get('title', ''), # encode as UTF-8 here?
+                        'title': entry.get('title', ''), 
                         'link': entry.get('link', ''),
-                        'summary': self._clean_summary(entry.get('summary', '')),  # encode as UTF-8 here?
+                        'summary': self._clean_summary(entry.get('summary', '')),
                         'published': pub_date,
-                        'newsletter_name': newsletter['name'], # encode as UTF-8 here?
+                        'newsletter_name': newsletter['name'], 
                         'newsletter_category': newsletter['category'],
-                        'authors': authors,  # List of author names  # encode as UTF-8 here?
+                        'authors': authors,  # List of author names 
                         'word_count': word_count,
                         'comment_count': 0,
                         'reaction_count': 0,
@@ -181,16 +184,16 @@ class DigestGenerator:
                     article_count += 1
 
                 if article_count > 0:
-                    print(f" ✅ {article_count} articles".encode('utf-8'))
+                    print(f" ✅ {article_count} articles")
                     success_count += 1
                 else:
                     print(f" - (no recent articles)")
 
             except Exception as e:
-                print(f" ❌ Error: {e}".encode('utf-8'))
+                print(f" ❌ Error: {e}")
                 continue
 
-        print(f"\n✅ Fetched {len(articles)} total articles from {success_count} newsletters".encode('utf-8'))
+        print(f"\n✅ Fetched {len(articles)} total articles from {success_count} newsletters")
         self.articles = articles
         return articles
 
@@ -349,9 +352,9 @@ class DigestGenerator:
         To customize scoring weights, edit the values below:
         """
         if use_daily_average:
-            print("\n📊 Scoring articles using Daily Average model (engagement + length)...".encode('utf-8'))
+            print("\n📊 Scoring articles using Daily Average model (engagement + length)...")
         else:
-            print("\n📊 Scoring articles using Standard model (total engagement + length)...".encode('utf-8'))
+            print("\n📊 Scoring articles using Standard model (total engagement + length)...")
 
         now = datetime.now(timezone.utc)
 
@@ -369,7 +372,7 @@ class DigestGenerator:
             total_engagement = engagement_score = (
                 (article['reaction_count'] * LIKE_WEIGHT) +
                 (article['comment_count'] * COMMENT_WEIGHT) +
-                (article['restack_count'] * RESTACK_WEIGHT)    # KJS added restacks
+                (article['restack_count'] * RESTACK_WEIGHT)    # KJS added restacks (not working yet though)
             )
 
             # Apply daily average if requested
@@ -406,15 +409,15 @@ class DigestGenerator:
         # Sort by score descending
         self.articles.sort(key=lambda x: x['score'], reverse=True)
 
-        print(f"✅ Scored {len(self.articles)} articles".encode('utf-8'))
+        print(f"✅ Scored {len(self.articles)} articles")
 
         # Show top 5 scores
         if self.articles:
-            print("\n🏆 Top 5 articles:".encode('utf-8'))
+            print("\n🏆 Top 5 articles:")
             for i, article in enumerate(self.articles[:5], 1):
                 now = datetime.now(timezone.utc)
                 days_old = (now - article['published']).days  # use max (, 1) here?
-                print(f"   {i}. {article['title'][:60]}".encode('utf-8')) # handle unicode chars in article titles
+                print(f"   {i}. {article['title'][:60]}") # handle unicode chars in article titles
                 print(f"      Score: {article['score']:.1f} | "
                       f"{article['comment_count']} comments, "
                       f"{article['reaction_count']} likes, "
@@ -427,7 +430,7 @@ class DigestGenerator:
 
     def generate_digest_html(self, featured_count=5, include_wildcard=False, days_back=7, scoring_method='daily_average', show_scores=True):
         """Generate Substack-ready HTML digest with clean formatting"""
-        print(f"\n📝 Generating digest HTML...".encode('utf-8'))
+        print(f"\n📝 Generating digest HTML...")
 
         # Select featured articles
         featured = self.articles[:featured_count]
@@ -607,8 +610,8 @@ class DigestGenerator:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html)
 
-        print(f"\n💾 Digest saved to: {output_path.absolute()}".encode('utf-8'))
-        print(f"\n📋 To use in Substack:".encode('utf-8'))
+        print(f"\n💾 Digest saved to: {output_path.absolute()}")
+        print(f"\n📋 To use in Substack:")
         print(f"   1. Open {filename} in a browser")
         print(f"   2. Select all (Cmd/Ctrl + A)")
         print(f"   3. Copy (Cmd/Ctrl + C)")
@@ -621,7 +624,7 @@ Non-Interactive function for digest generation (so it can be scripted and schedu
 def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, verbose, output_file):
 
     print("=" * 70)
-    print("📧 Standalone Newsletter Digest Generator".encode('utf-8'))
+    print("📧 Standalone Newsletter Digest Generator")
     print("=" * 70)
     print()
 
@@ -646,7 +649,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_
     articles = generator.fetch_articles(days_back=days_back) # TO DO: Update to handle start date-end date
 
     if not articles:
-        print("\n❌ No articles found! Try increasing the lookback period.".encode('utf-8'))
+        print("\n❌ No articles found! Try increasing the lookback period.")
         return -1
 
     print()
@@ -674,7 +677,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_
     # TO DO: Save the data on the articles to a dataframe, then to CSV (if option selected by user)
 
     print("\n" + "=" * 70)
-    print("✅ Digest generation complete!".encode('utf-8'))
+    print("✅ Digest generation complete!")
     print("=" * 70)
 
     return 0
@@ -736,7 +739,7 @@ def main():
     parser.add_argument("--interactive", help="Use interactive prompting for inputs? (default='n')", default='n')
 
     print("=" * 70)
-    print("📧 Standalone Newsletter Digest Generator".encode('utf-8'))
+    print("📧 Standalone Newsletter Digest Generator")
     print("=" * 70)
     print()
 
@@ -775,11 +778,11 @@ def main():
         result=automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, verbose, output_file)
     
     except KeyboardInterrupt:
-        print("\n\n👋 Cancelled by user".encode('utf-8'))
+        print("\n\n👋 Cancelled by user")
         return 0
 
     except Exception as e:
-        print(f"\n❌ Error: {e}".encode('utf-8'))
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return -1
