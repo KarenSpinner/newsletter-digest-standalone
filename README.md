@@ -47,6 +47,10 @@ Creates a formatted newsletter digest from your Substack subscriptions that you 
    ```bash
    pip install -r requirements.txt
    ```
+   
+3. **Windows logging configuration**
+   To prevent encoding issues when logging output to a file on Windows, use this command first:
+    set PYTHONIOENCODING=utf_8   
 
 That's it! You're ready to go.
 
@@ -54,7 +58,34 @@ That's it! You're ready to go.
 
 ### Run the generator:
 ```bash
-python digest_generator.py
+**python digest_generator.py --help** - show runstring commands
+**python digest_generator.py** - all default configuration options are used
+**python digest_generator.py --interactive Y** - prompt for all configuration options
+**python digest_generator.py [options]** - run with specified options and default values for unspecified options
+
+usage: digest_generator.py [-h] [--csv_path CSV_PATH] [--days_back DAYS_BACK] [--featured_count FEATURED_COUNT]
+                           [--wildcard WILDCARD] [--scoring_choice SCORING_CHOICE] [--show_scores SHOW_SCORES]
+                           [--output_file OUTPUT_FILE] [--verbose VERBOSE] [--interactive INTERACTIVE]
+						   
+Generate newsletter digest.
+
+options:
+  -h, --help            show this help message and exit
+  --csv_path CSV_PATH   Path to CSV file (default='my_newsletters.csv')
+  --days_back DAYS_BACK
+                        How many days back to fetch articles (default=7)
+  --featured_count FEATURED_COUNT
+                        How many articles to feature (default=10)
+  --wildcard WILDCARD   Include wildcard pick? (default=n)
+  --scoring_choice SCORING_CHOICE
+                        Scoring method: 1=Daily Average, 2=Standard (default=2)
+  --show_scores SHOW_SCORES
+                        Show scores outside the Featured section? (default=n)
+  --output_file OUTPUT_FILE
+                        Output filename (e.g., 'digest_output.html')
+  --verbose VERBOSE     More detailed outputs while program is running? (default='n')
+  --interactive INTERACTIVE
+                        Use interactive prompting for inputs? (default='n')						   
 ```
 
 ### Interactive prompts:
@@ -81,7 +112,10 @@ You'll be asked:
    - Daily Average: Favors recent articles (10 likes today > 50 likes last week)
    - Standard: Favors total engagement (50 likes last week > 10 likes today)
 
-6. **Output filename** (default: `digest_output.html`)
+6. **Show scores** (default: yes)
+   - Include scores on digest page for non-featured articles
+
+7. **Output filename** (default: `digest_output.html`)
    - Name of the HTML file to save
 
 ### Example session:
@@ -105,6 +139,8 @@ Scoring method:
   1. Daily Average - Favors recent articles (10 likes today > 50 likes last week)
   2. Standard - Favors total engagement (50 likes last week > 10 likes today)
 Choose scoring method (1/2, default: 2): [Enter]
+
+Show scores? (y/n, default: y): [Enter]
 
 Step 3: Fetch Articles
 ----------------------------------------
@@ -264,6 +300,10 @@ LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 ```
 
 ## Troubleshooting
+
+### "UnicodeEncodeError"
+- Happens on Windows when logging output to a file without setting the default encoding
+- Solution: set PYTHONIOENCODING=utf_8
 
 ### "CSV file not found"
 - Make sure `my_newsletters.csv` is in the same directory
