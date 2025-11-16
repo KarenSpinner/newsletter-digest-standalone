@@ -110,17 +110,17 @@ class DigestGenerator:
     '''
     Retry API calls with increasing delays if we get 429 errors
     '''
-    def api_call_retries(self, headers, url, retries=3):
+    def api_call_retries(self, headers, url, max_retries=3):
 
         retry_count=0; delay=1.0
-        while retry_count < retries:
+        while retry_count < max_retries:
             
             response = requests.get(url, headers=headers, timeout=10)
 
             if response.status_code == 200: 
                 return response
 
-            print(f" ⚠️  HTTP {response.status_code}", end='', flush=True)
+            print(f" ⚠️ HTTP {response.status_code}", end='', flush=True)
 
             # KJS 2025-11-13 If response is 429, Too Many Requests, wait
             # a while and then try again. We don't want to omit anyone.
@@ -133,7 +133,7 @@ class DigestGenerator:
         # If we get here, we exceeded our max retries. Give up on this call.
         return None
 
-    def fetch_articles(self, days_back=7, use_Substack_API=True, max_retries=3, match_authors=False):
+    def fetch_articles(self, days_back=7, use_Substack_API=True, max_retries=3, match_authors=False, verbose=False):
         """Fetch recent articles from all newsletters"""
         print(f"\n📰 Fetching articles from past {days_back} days...")
 
@@ -464,8 +464,10 @@ class DigestGenerator:
                     normalized = ((min(article['raw_score'],100) - min_score) / score_range) * 99 + 1
                     article['score'] = normalized
 
-        # Sort by score descending
-        self.articles.sort(key=lambda x: x['score'], reverse=True)
+        # Sort by raw score descending (this way if we've normalized
+        # some high-scoring posts and capped them at 100, the highest
+        # will still come out on top)
+        self.articles.sort(key=lambda x: x['raw_score'], reverse=True)
 
         print(f"✅ Scored {len(self.articles)} articles")
 
@@ -744,7 +746,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_
     # Step 3: Fetch articles
     print("Step 3: Fetch Articles")
     print("-" * 70)
-    articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors) # TO DO: Update to handle start date-end date
+    articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, verbose=verbose) # TO DO: Update to handle start date-end date
 
     if not articles:
         print("\n❌ No articles found! Try increasing the lookback period.")
