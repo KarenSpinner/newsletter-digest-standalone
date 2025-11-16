@@ -454,11 +454,10 @@ class DigestGenerator:
                 restack_text = f", {article['restack_count']} restacks" if article['restack_count']>0 else "" 
                 print(f"      Score: {article['score']:.1f} | "
                       f"{article['reaction_count']} likes, "
-                      f"{article['comment_count']} comments "
+                      f"{article['comment_count']} comments"
                       f"{restack_text} | "
                       f"{article['word_count']} words | "
-                      f"{days_old}d old "
-                      f"({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
+                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
 
                 # publication date is not showing up ???
 
@@ -541,11 +540,8 @@ class DigestGenerator:
             author_text = ' & '.join(article['authors'])
             first_line_parts.append(f"by {author_text}")
         days_ago = (datetime.now(timezone.utc) - article['published']).days  # use max (, 1) here?
-        first_line_parts.append(f" • {days_ago}d ago ")
-        first_line_parts.append(f"({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
+        first_line_parts.append(f" {days_ago}d ago ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
 
-        # TO DO: add actual date published
-        
         return f'<div>{" • ".join(first_line_parts)}</div>'
                 
     '''
@@ -794,18 +790,18 @@ def main():
     # Allow interactive mode to be an option
     parser = argparse.ArgumentParser(description="Generate newsletter digest.")
     # Put these in alphabetical order to make it easier for users to understand the help text
-    parser.add_argument("--csv_path", help="Path to CSV file (default='my_newsletters.csv')", default="my_newsletters.csv")
-    parser.add_argument("--days_back", help="How many days back to fetch articles (default=7)", type=int, default=7)
-    parser.add_argument("--featured_count", help="How many articles to feature (default=10)", type=int, default=10)
-    parser.add_argument("--interactive", help="Use interactive prompting for inputs? (default='n')", default='n')
-    parser.add_argument("--match_authors", help="Use Author column in CSV file to filter articles (default='n')", default='n')
-    parser.add_argument("--max_retries", help="Number of times to retry API calls (default=3)", type=int, default=3)
-    parser.add_argument("--output_file_csv", help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
+    parser.add_argument("--csv_path",         help="Path to CSV file (default='my_newsletters.csv')", default="my_newsletters.csv")
+    parser.add_argument("--days_back",        help="How many days back to fetch articles (default=7)", type=int, default=7)
+    parser.add_argument("--featured_count",   help="How many articles to feature (default=10)", type=int, default=10)
+    parser.add_argument("--interactive",      help="Use interactive prompting for inputs? (default='n')", default='n')
+    parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='n')", default='n')
+    parser.add_argument("--max_retries",      help="Number of times to retry API calls (default=3)", type=int, default=3)
+    parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
     parser.add_argument("--output_file_html", help="Output HTML filename (e.g., default 'digest_output.html'; use . for a default name)", default="")
-    parser.add_argument("--scoring_choice", help="Scoring method: 1=Standard, 2=Daily Average (default=1)",default='1')
-    parser.add_argument("--show_scores", help="Show scores outside the Featured section? (default=n)",default='n')
+    parser.add_argument("--scoring_choice",   help="Scoring method: 1=Standard, 2=Daily Average (default=1)",default='1')
+    parser.add_argument("--show_scores",      help="Show scores outside the Featured section? (default=n)",default='n')
     parser.add_argument("--use_substack_api", help="Use Substack API to get engagement metrics? (default=n, get from RSS - restack counts not available)",default='n')
-    parser.add_argument("--verbose", help="More detailed outputs while program is running? (default='n')", default='n')
+    parser.add_argument("--verbose",  help="More detailed outputs while program is running? (default='n')", default='n')
     parser.add_argument("--wildcard", help="Include wildcard pick? (default=n)", default='n')
 
     print("=" * 70)
