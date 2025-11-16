@@ -34,6 +34,7 @@ import pandas as pd
 # Added 2025-11-13 KJS
 import argparse
 import time
+import traceback
 
 
 class DigestGenerator:
@@ -43,7 +44,7 @@ class DigestGenerator:
         self.newsletters = []
         self.articles = []
 
-    def load_newsletters_from_csv(self, csv_path='my_newsletters.csv'):
+    def load_newsletters_from_csv(self, csv_path='my_newsletters.csv', verbose=False):
         """Load newsletters from CSV export"""
         csv_file = Path(csv_path)
         if not csv_file.exists():
@@ -67,21 +68,35 @@ class DigestGenerator:
                 if website_url.startswith('http'):
                     base_url = website_url.rstrip('/')
                 else:
-                    base_url = f"https://{website_url}"
-
+                    base_url = f"https://{website_url}"                
                 rss_url = f"{base_url}/feed"
+                
+                # It's possible for a newsletter to be in a list twice with different 
+                # author names, or with the same author name if it's an alias for multiple writers.
+                # If the same, don't duplicate it in our list. We'd just do extra work for nothing
+                # and end up with duplicate articles in the digest.
+                author = row.get('Author', '')
+                newsletter_name = row['Newsletter Name']
+                duplicate=False
+                for newsletter in self.newsletters:
+                    duplicate = newsletter_name==newsletter['name'] and author==newsletter['author']
+                    if duplicate: break
+                    # Also note the possibility that a newsletter could be in here twice: once
+                    # with a name and once with blank (no matching). Going to ignore that for now.
+                if duplicate: 
+                    if verbose: print(f"Skipping newsletter {newsletter_name} and author {author} (duplicate)")
+                    continue
 
+                # Not a duplicate - add it
                 newsletter = {
-                    'name': row['Newsletter Name'],
+                    'name': newsletter_name,
                     'url': website_url,
                     'rss_url': rss_url,
                     'category': row.get('Category', 'Uncategorized'),
                     'collections': row.get('Collections', ''),
-                    'author': row.get('Author', ''),
+                    'author': author,
                     'article_count': 0,
-                    # TO DO: Add author name & profile link for optional additional filtering
-                }
-                
+                }                
                 self.newsletters.append(newsletter)
 
         # Check added 2025-11-13 KJS
@@ -109,6 +124,8 @@ class DigestGenerator:
 
             # KJS 2025-11-13 If response is 429, Too Many Requests, wait
             # a while and then try again. We don't want to omit anyone.
+            # (This might induce retry delays for unrecoverable errors such as 404,
+            # but we accept that. This way it handles 429 and other intermittent errors.)
             time.sleep(delay) 
             delay *= 2.0  # double the delay for next time if this try fails
             retry_count += 1            
@@ -134,13 +151,17 @@ class DigestGenerator:
 
         for i, newsletter in enumerate(self.newsletters, 1):
             try:
-                # Added 2025-11-13 KJS - give Substack a breather to try to prevent 429 errors
+                # Added 2025-11-13 KJS - give Substack an extra breather to try to prevent 429 errors
                 # when processing large lists of newsletters
                 if (i % 100 == 0): 
-                    print(f"(Waiting 5 sec to avoid overloading Substack)")
+                    if verbose: print(f"(Waiting 5 extra sec to avoid overloading Substack)")
                     time.sleep(5.0)
 
-                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}...", end='', flush=True)
+                # Include author name if we are going to match on it
+                newsletter_author=newsletter['author']
+                author_text = f" ({newsletter_author})" if match_authors and len(newsletter_author)>0 else ''
+
+                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text}...", end='', flush=True)
 
                 # Fetch RSS feed; retry if it times out or is overloaded
                 headers = {'User-Agent': 'Mozilla/5.0 (compatible; DigestBot/1.0)'}
@@ -201,6 +222,7 @@ class DigestGenerator:
                         'summary': self._clean_summary(entry.get('summary', '')),
                         'published': pub_date,
                         'newsletter_name': newsletter['name'], 
+                        'newsletter_link': newsletter['url'], 
                         'newsletter_category': newsletter['category'],
                         'authors': authors,  # List of author names 
                         'word_count': word_count,
@@ -368,7 +390,7 @@ class DigestGenerator:
 
         return text.strip()
 
-    def score_articles(self, use_daily_average=True):
+    def score_articles(self, use_daily_average=True, verbose=False):
         """
         Score articles based on engagement and content length
 
@@ -405,7 +427,7 @@ class DigestGenerator:
             total_engagement = engagement_score = (
                 (article['reaction_count'] * LIKE_WEIGHT) +
                 (article['comment_count'] * COMMENT_WEIGHT) +
-                (article['restack_count'] * RESTACK_WEIGHT)    # KJS added restacks (not working yet though)
+                (article['restack_count'] * RESTACK_WEIGHT)
             )
 
             # Apply daily average if requested
@@ -424,9 +446,12 @@ class DigestGenerator:
 
         # Normalize scores to 1-100 range
         if self.articles:
+
             raw_scores = [a['raw_score'] for a in self.articles]
-            min_score = min(raw_scores)
-            max_score = max(raw_scores)
+
+             # 2025-11-16 handle outlier case (eg 400+) skewing all scores low
+            min_score = min(min(raw_scores),100.0)
+            max_score = min(max(raw_scores),100.0) 
 
             # Handle edge case where all scores are the same
             score_range = max_score - min_score
@@ -436,7 +461,7 @@ class DigestGenerator:
             else:
                 for article in self.articles:
                     # Normalize to 1-100 range
-                    normalized = ((article['raw_score'] - min_score) / score_range) * 99 + 1
+                    normalized = ((min(article['raw_score'],100) - min_score) / score_range) * 99 + 1
                     article['score'] = normalized
 
         # Sort by score descending
@@ -450,16 +475,17 @@ class DigestGenerator:
             for i, article in enumerate(self.articles[:5], 1):
                 now = datetime.now(timezone.utc)
                 days_old = (now - article['published']).days  # use max (, 1) here?
-                print(f"   {i}. {article['title'][:60]}") # handle unicode chars in article titles
+                print(f"   {i}. {article['title'][:75]}") # handle unicode chars in article titles
                 restack_text = f", {article['restack_count']} restacks" if article['restack_count']>0 else "" 
+                if verbose:
+                    author_text = ' & '.join(article['authors'])
+                    print(f"      In newsletter: {article['newsletter_name']} | by Author(s): {author_text}")
                 print(f"      Score: {article['score']:.1f} | "
                       f"{article['reaction_count']} likes, "
                       f"{article['comment_count']} comments"
                       f"{restack_text} | "
                       f"{article['word_count']} words | "
-                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
-
-                # publication date is not showing up ???
+                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Added actual date published
 
 
     def generate_digest_html(self, featured_count=5, include_wildcard=False, days_back=7, scoring_method='daily_average', show_scores=True):
@@ -646,14 +672,34 @@ class DigestGenerator:
         
         # Save the dataframe to the CSV file specified
         try:
-            articles_df = pd.DataFrame(self.articles)
+            #articles_df = pd.DataFrame(self.articles)
+            articles_df = pd.DataFrame()
+            
+            # Rename and reformat columns, eg the list of authors, and make two links display-ready (markdown-compatible)            
+            i=0
+            for article in self.articles:
+                articles_df.at[i,'Category']  = article['newsletter_category']
+                articles_df.at[i,'Date Published'] = article['published']
+                articles_df.at[i,'Authors'] = ' & '.join(article['authors'])
+                articles_df.at[i,'Article Link'] = f"[{article['title']}]({article['link']})"
+                articles_df.at[i,'Newsletter Link'] = f"[{article['newsletter_name']}]({article['newsletter_link']})"
+                articles_df.at[i,'Summary']   = article['summary']
+                articles_df.at[i,'Words']     = article['word_count']
+                articles_df.at[i,'Likes']     = article['reaction_count']
+                articles_df.at[i,'Comments']  = article['comment_count']
+                articles_df.at[i,'Restacks']  = article['restack_count']
+                articles_df.at[i,'Raw Score'] = article['raw_score']
+                articles_df.at[i,'Score']     = article['score']
+                i += 1
+
             articles_df.to_csv(csv_digest_file, index=False)
-            print(f"CSV digest data saved to {csv_digest_file}")
+
         except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
             print(f"\nERROR: Writing to CSV digest output file '{csv_digest_file}' failed: {e}\n")
             return (-1)
         except Exception as e:        
             print(f"\nERROR: Exception while writing CSV digest output file '{csv_digest_file}': {e}\n")
+            traceback.print_exc()
             return (-1)
        
         print(f"\n💾 Digest data saved to: {csv_digest_file}")
@@ -667,7 +713,7 @@ class DigestGenerator:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html)
 
-        print(f"\n💾 Digest saved to: {output_path.absolute()}")
+        print(f"\n💾 Digest page saved to: {output_path.absolute()}")
         print(f"\n📋 To use in Substack:")
         print(f"   1. Open {filename} in a browser")
         print(f"   2. Select all (Cmd/Ctrl + A)")
@@ -680,18 +726,13 @@ Non-Interactive function for digest generation (so it can be scripted and schedu
 '''
 def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file):
 
-    print("=" * 70)
-    print("📧 Standalone Newsletter Digest Generator") # if you get an encoding error here, set PYTHONIOENCODING=utf_8
-    print("=" * 70)
-    print()
-
     generator = DigestGenerator()
 
     # Step 1: Load newsletters
     print("Step 1: Load Newsletters")
     print("-" * 70)
 
-    if not generator.load_newsletters_from_csv(csv_path):
+    if not generator.load_newsletters_from_csv(csv_path, verbose):
         return -1
     print()
 
@@ -714,7 +755,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_
     # Step 4: Score articles
     print("Step 4: Score Articles")
     print("-" * 70)
-    generator.score_articles(use_daily_average=use_daily_average)
+    generator.score_articles(use_daily_average=use_daily_average, verbose=verbose)
 
     print()
 
@@ -736,10 +777,6 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_
         show_scores=show_scores
     )
     generator.save_digest_html(html, output_file)
-
-    print("\n" + "=" * 70)
-    print("✅ Digest generation complete!")
-    print("=" * 70)
 
     return 0
 
@@ -763,10 +800,10 @@ def interactive_cli():
     include_wildcard = (wildcard != 'n')
 
     print("\nScoring method:")
-    print("  1. Daily Average - Favors recent articles (10 likes today > 50 likes last week)")
-    print("  2. Standard - Favors total engagement (50 likes last week > 10 likes today)")
-    scoring_choice = input("Choose scoring method (1/2, default: 2): ").strip()
-    use_daily_average = scoring_choice == '1'
+    print("  1. Standard - Favors total engagement (50 likes last week > 10 likes today)")
+    print("  2. Daily Average - Favors recent articles (10 likes today > 50 likes last week)")
+    scoring_choice = input("Choose scoring method (1/2, default: 1): ").strip()
+    use_daily_average = scoring_choice == '2'
     scoring_method = 'daily_average' if use_daily_average else 'standard'
 
     scoring = input("Show scores on non-featured articles? (y/n, default: y): ").strip().lower()
@@ -794,7 +831,7 @@ def main():
     parser.add_argument("--days_back",        help="How many days back to fetch articles (default=7)", type=int, default=7)
     parser.add_argument("--featured_count",   help="How many articles to feature (default=10)", type=int, default=10)
     parser.add_argument("--interactive",      help="Use interactive prompting for inputs? (default='n')", default='n')
-    parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='n')", default='n')
+    parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)", default='y')
     parser.add_argument("--max_retries",      help="Number of times to retry API calls (default=3)", type=int, default=3)
     parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
     parser.add_argument("--output_file_html", help="Output HTML filename (e.g., default 'digest_output.html'; use . for a default name)", default="")
@@ -805,45 +842,46 @@ def main():
     parser.add_argument("--wildcard", help="Include wildcard pick? (default=n)", default='n')
 
     print("=" * 70)
-    print("📧 Standalone Newsletter Digest Generator")
+    print("📧 Standalone Newsletter Digest Generator") # if you get an encoding error here, set PYTHONIOENCODING=utf_8
     print("=" * 70)
     print()
 
     result=0
     try:
         args = parser.parse_args()
+ 
+        csv_path          = args.csv_path
+        days_back         = args.days_back
+        featured_count    = args.featured_count
+        include_wildcard  = (args.wildcard[0].lower() != 'n')
+        match_authors     = (args.match_authors[0].lower() == 'y')
+        use_daily_average = args.scoring_choice == '2'
+        show_scores       = (args.show_scores[0].lower() != 'n')
+        use_Substack_API  = (args.use_substack_api[0].lower() != 'n')
+        verbose           = (args.verbose[0].lower() != 'n')
+        max_retries       = args.max_retries
+
+        output_file       = args.output_file_html.strip()
+        if not output_file or len(output_file) < 1:  # use a default name
+            output_file = 'digest_output.html'    
+        elif len(output_file) < 2:  # create a default name based on input file name
+            output_file = csv_path.replace('.csv','.digest_output.html')
+            
+        csv_digest_file = args.output_file_csv.strip()
+        if not csv_digest_file or len(csv_digest_file)<1:
+            csv_digest_file = ''        # default is no CSV output file
+        elif len(csv_digest_file) < 2:  # create a default name based on input file name
+            csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
+
         interactive=(args.interactive[0].lower() != 'n')
         if interactive:
             # prompt for (almost) everything
             csv_path, days_back, featured_count, include_wildcard, use_daily_average, show_scores, output_file = interactive_cli()
-            verbose=args.verbose
             print("\nRunning digest generator with defaults and settings from interactive prompts\n")
         else:
-            csv_path          = args.csv_path
-            days_back         = args.days_back
-            featured_count    = args.featured_count
-            include_wildcard  = (args.wildcard[0].lower() != 'n')
-            match_authors     = (args.match_authors[0].lower() != 'n')
-            use_daily_average = args.scoring_choice == '2'
-            show_scores       = (args.show_scores[0].lower() != 'n')
-            use_Substack_API  = (args.use_substack_api[0].lower() != 'n')
-            verbose           = (args.verbose[0].lower() != 'n')
-            max_retries       = args.max_retries
+            print("\nRunning digest generator with defaults and settings from runstring.\n(Use --interactive to be prompted.)\n")
 
-            output_file       = args.output_file_html.strip()
-            if not output_file or len(output_file) < 1:  # use a default name
-                output_file = 'digest_output.html'    
-            elif len(output_file) < 2:  # create a default name based on input file name
-                output_file = csv_path.replace('.csv','.digest_output.html')
-                
-            csv_digest_file = args.output_file_csv.strip()
-            if not csv_digest_file or len(csv_digest_file)<1:
-                csv_digest_file = ''        # default is no CSV output file
-            elif len(csv_digest_file) < 2:  # create a default name based on input file name
-                csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
-
-            print("\nRunning digest generator with defaults and settings from runstring. (Use --interactive to be prompted.)\n")
-
+        scoring_method = ('daily_average' if use_daily_average else 'standard')
         if verbose:
             print(f"CSV path: {csv_path}")
             print(f"Days back: {days_back}")
@@ -851,14 +889,13 @@ def main():
             print(f"Include wildcard? {include_wildcard}")
             print(f"Match authors? {match_authors}")
             print(f"Show scores? {show_scores}")
+            print(f"Scoring method? {scoring_method}")
             print(f"Use Substack API for engagement metrics? {use_Substack_API}")
             print(f"Max retries on Substack RSS feed and API calls? {max_retries}")
             print(f"Output file HTML: {output_file}")
             print(f"Output file CSV: {csv_digest_file}")
             print()
         
-        scoring_method = ('daily_average' if use_daily_average else 'standard')
-
         result=automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file)
     
     except KeyboardInterrupt:
@@ -867,9 +904,12 @@ def main():
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
-        import traceback
         traceback.print_exc()
         return -1
+
+    print("\n" + "=" * 70)
+    print("✅ Digest generation complete!")
+    print("=" * 70)
     
     return result
     
