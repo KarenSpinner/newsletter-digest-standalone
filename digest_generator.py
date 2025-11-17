@@ -36,6 +36,43 @@ import argparse
 import time
 import traceback
 
+VERBOSE_DEFAULT=True
+
+''' Markdown link utilities '''
+def get_from_markdown(md_string: str, verbose=VERBOSE_DEFAULT):
+    """
+    Extracts the title and link from a markdown string of the form [title](link).
+    Args: md_string (str): A string containing a markdown link.
+    Returns: tuple: (title, link) if found, else (None, None).
+    Problem: Does not work well on markdown strings where the title inside the [] contains its own [ or ].
+    """
+    try:
+        # Text is in the pattern '[title](link)'
+        pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+        match = re.search(pattern, md_string)
+        if match:
+            title, link = match.groups()
+            return title, link
+    except Exception as e:
+        if verbose: print(f"Exception parsing name and link from markdown text: {md_string}")
+
+    # No exception, but it didn't match, either
+    if verbose: print(f"Unable to parse name and link from markdown: wrong format {md_string}")
+    return None, None
+
+def make_markdown_link(title, url):
+    ''' KJS 2025-11-17 Create a markdown link string that handles a title which has its own [] inside '''
+    if title and url:
+        escaped_title=title.replace("[","\[")
+        escaped_title=escaped_title.replace("]","\]")
+        md_string = f"[{escaped_title}]({url})"
+    elif title:
+        md_string=title
+    else:
+        md_string=""
+    return md_string
+
+
 
 class DigestGenerator:
     """Standalone newsletter digest generator"""
@@ -44,7 +81,69 @@ class DigestGenerator:
         self.newsletters = []
         self.articles = []
 
-    def load_newsletters_from_csv(self, csv_path='my_newsletters.csv', verbose=False):
+    ''' Add one newsletter (from input CSV file OR reconstructed from articles CSV file) '''
+    def add_newsletter(self, newsletter_name, website_url, writer_name='', writer_handle='', category='', collections='', verbose=VERBOSE_DEFAULT):
+
+        # Extract base URL and build RSS feed
+        # Handle both custom domains and substack.com URLs
+        # Note: Custom domains (e.g., insights.priva.cat) still use /feed endpoint
+        if website_url.startswith('http'):
+            base_url = website_url.rstrip('/')
+        else:
+            base_url = f"https://{website_url}"                
+        rss_url = f"{base_url}/feed"
+        
+        # KJS: It's possible for a newsletter to be in a list twice with different writer names,
+        # or with the same writer name if it's an alias for multiple people who write in it.
+        # If the same, don't duplicate it in our list. We'd just do extra work for nothing
+        # and end up with duplicate articles in the digest.
+        duplicate=False
+        for newsletter in self.newsletters:
+            duplicate = newsletter_name==newsletter['name'] and writer_name==newsletter['writer_name']
+            if duplicate: break
+            # Also note the possibility that a newsletter could be in here twice: once
+            # with a name and once with blank (no matching). Going to ignore that for now.
+        if duplicate: 
+            #if verbose: print(f"  Skipping newsletter {newsletter_name} and writer '{writer_name}' (duplicate)")
+            return None
+
+        # Not a duplicate - add it
+        newsletter = {
+            'name': newsletter_name,
+            'url': website_url,
+            'rss_url': rss_url,
+            'category': category,
+            'collections': collections,
+            'writer_name': writer_name,
+            'writer_handle': writer_handle,
+            'article_count': 0,
+        }                
+        self.newsletters.append(newsletter)
+
+        #if verbose: print(f"  Added newsletter {newsletter} to list")
+        return newsletter
+
+    ''' Process one newsletter row (from input CSV file OR reconstructed from articles CSV file) '''
+    def process_newsletter(self, row, verbose=VERBOSE_DEFAULT):
+
+        # Get the required columns
+        website_url = row['Website URL'].strip()
+        newsletter_name = row['Newsletter Name'].strip()
+        
+        # KJS Handle blank lines in the input file (e.g. rows with an author name but no newsletter)
+        if len(website_url) < 1: 
+            return None
+
+        # Get the optional columns
+        writer_name = row.get('Author', '')             # KJS 2025-11-13 input from newsletter CSV file
+        writer_handle = row.get('Substack Handle', '')  # KJS 2025-11-17 input from newsletter CSV file
+        category = row.get('Category', 'Uncategorized')
+        collections = row.get('Collections', '')
+
+        newsletter=self.add_newsletter(newsletter_name, website_url, writer_name, writer_handle, category, collections, verbose)
+        return newsletter
+
+    def load_newsletters_from_csv(self, csv_path='my_newsletters.csv', verbose=VERBOSE_DEFAULT):
         """Load newsletters from CSV export"""
         csv_file = Path(csv_path)
         if not csv_file.exists():
@@ -52,52 +151,14 @@ class DigestGenerator:
             print(f"   Please create a CSV file with your newsletter subscriptions.")
             return False
 
+        # Note that if the user wants to feed in CSV article data but forgets to set the
+        # --reuse_csv_data runstring option, this section will choke on trying to find 
+        # 'Website URL'. That's sort of ok, although it would be nicer to detect this
+        # and tell them to set the runstring option.
         with open(csv_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Build RSS URL from website URL (Substack pattern)
-                # Handle alternate name of this column in the file
-                website_url = row['Website URL'].strip()
-                
-                # Handle blank lines in the input file (e.g. rows with an author name but no newsletter)
-                if len(website_url) < 1: continue
-
-                # Extract base URL and build RSS feed
-                # Handle both custom domains and substack.com URLs
-                # Note: Custom domains (e.g., insights.priva.cat) still use /feed endpoint
-                if website_url.startswith('http'):
-                    base_url = website_url.rstrip('/')
-                else:
-                    base_url = f"https://{website_url}"                
-                rss_url = f"{base_url}/feed"
-                
-                # It's possible for a newsletter to be in a list twice with different 
-                # author names, or with the same author name if it's an alias for multiple writers.
-                # If the same, don't duplicate it in our list. We'd just do extra work for nothing
-                # and end up with duplicate articles in the digest.
-                author = row.get('Author', '')
-                newsletter_name = row['Newsletter Name']
-                duplicate=False
-                for newsletter in self.newsletters:
-                    duplicate = newsletter_name==newsletter['name'] and author==newsletter['author']
-                    if duplicate: break
-                    # Also note the possibility that a newsletter could be in here twice: once
-                    # with a name and once with blank (no matching). Going to ignore that for now.
-                if duplicate: 
-                    if verbose: print(f"Skipping newsletter {newsletter_name} and author {author} (duplicate)")
-                    continue
-
-                # Not a duplicate - add it
-                newsletter = {
-                    'name': newsletter_name,
-                    'url': website_url,
-                    'rss_url': rss_url,
-                    'category': row.get('Category', 'Uncategorized'),
-                    'collections': row.get('Collections', ''),
-                    'author': author,
-                    'article_count': 0,
-                }                
-                self.newsletters.append(newsletter)
+                self.process_newsletter(row, verbose)
 
         # Check added 2025-11-13 KJS
         if len(self.newsletters) < 1: # no errors, but no newsletters found
@@ -133,7 +194,7 @@ class DigestGenerator:
         # If we get here, we exceeded our max retries. Give up on this call.
         return None
 
-    def fetch_articles(self, days_back=7, use_Substack_API=True, max_retries=3, match_authors=False, verbose=False):
+    def fetch_articles(self, days_back=7, use_Substack_API=True, max_retries=3, match_authors=False, verbose=VERBOSE_DEFAULT):
         """Fetch recent articles from all newsletters"""
         print(f"\n📰 Fetching articles from past {days_back} days...")
 
@@ -158,14 +219,15 @@ class DigestGenerator:
                     time.sleep(5.0)
 
                 # Include author name if we are going to match on it
-                newsletter_author=newsletter['author']
-                author_text = f" ({newsletter_author})" if match_authors and len(newsletter_author)>0 else ''
+                writer_name=newsletter['writer_name']     # KJS partial or full name of writer to match on
+                writer_handle=newsletter['writer_handle'] # KJS 2025-11-17 writer handle in Substack
+                author_text = f" ({writer_name})" if match_authors and len(writer_name)>0 else ''
 
-                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text}...", end='', flush=True)
+                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text} ({writer_handle})...", end='', flush=True)
 
                 # Fetch RSS feed; retry if it times out or is overloaded
                 headers = {'User-Agent': 'Mozilla/5.0 (compatible; DigestBot/1.0)'}
-                response = self.api_call_retries(headers, newsletter['rss_url'], retries=max_retries)
+                response = self.api_call_retries(headers, newsletter['rss_url'], max_retries=max_retries)
                 if not response:
                     print(f" Retry limit {max_retries} exceeded; skipping this newsletter")
                     continue
@@ -191,11 +253,14 @@ class DigestGenerator:
                         authors.append(entry.author)
                     elif hasattr(entry, 'authors') and entry.authors:
                         authors.extend([a.get('name', a) if isinstance(a, dict) else a for a in entry.authors])
+                    # KJS 2025-11-17 If no byline in article, use the name of the Newsletter Author if known.
+                    #elif len(writer_name)>0: 
+                    #   authors.append(writer_name)
 
                     # KJS 2025-11-15 If the input CSV has an Author column, match on it
-                    newsletter_author=newsletter['author']
-                    if match_authors and len(newsletter_author)>0 and not newsletter_author in authors:
-                        # Not the author we want; skip it
+                    #writer_name=newsletter['writer_name']
+                    if match_authors and len(writer_name)>0 and not writer_name in authors:
+                        # This author is not the writer we want; skip it
                         continue
 
                     # Get content for word count (try content first, fallback to summary)
@@ -221,10 +286,12 @@ class DigestGenerator:
                         'link': entry.get('link', ''),
                         'summary': self._clean_summary(entry.get('summary', '')),
                         'published': pub_date,
+                        'authors': authors,  # List of article author names 
                         'newsletter_name': newsletter['name'], 
                         'newsletter_link': newsletter['url'], 
                         'newsletter_category': newsletter['category'],
-                        'authors': authors,  # List of author names 
+                        'writer_name': writer_name, # KJS 2025-11-17  (not necessarily article author; may be blank)
+                        'writer_handle': writer_handle, # KJS 2025-11-17 newsletter author handle
                         'word_count': word_count,
                         'comment_count': 0,
                         'reaction_count': 0,
@@ -281,7 +348,7 @@ class DigestGenerator:
                 'Accept': 'application/json'
             }
 
-            response = self.api_call_retries(headers, api_url, retries=max_retries)
+            response = self.api_call_retries(headers, api_url, max_retries=max_retries)
             if response:
                 post_data = response.json()
 
@@ -390,7 +457,7 @@ class DigestGenerator:
 
         return text.strip()
 
-    def score_articles(self, use_daily_average=True, verbose=False):
+    def score_articles(self, use_daily_average=True, verbose=VERBOSE_DEFAULT):
         """
         Score articles based on engagement and content length
 
@@ -489,218 +556,380 @@ class DigestGenerator:
                       f"{article['word_count']} words | "
                       f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Added actual date published
 
-
-    def generate_digest_html(self, featured_count=5, include_wildcard=False, days_back=7, scoring_method='daily_average', show_scores=True):
+    def generate_digest_html(self, featured_count=5, include_wildcards=0, days_back=7, scoring_method='daily_average', show_scores=True, verbose=VERBOSE_DEFAULT):
         """Generate Substack-ready HTML digest with clean formatting"""
         print(f"\n📝 Generating digest HTML...")
 
         # Select featured articles
         featured = self.articles[:featured_count]
 
-        # Select wildcard (random from next 10)
-        wildcard = None
-        if include_wildcard and len(self.articles) > featured_count:
+        # Select wildcard (1 random from next 10)
+        wildcards = []
+        if include_wildcards>0 and len(self.articles) > featured_count:
             import random
-            wildcard_pool = self.articles[featured_count:featured_count + 10]
+            wildcard_max = min(10*include_wildcards,len(self.articles)-featured_count) # KJS Adjust pool for multiple wildcards
+            wildcard_pool = self.articles[featured_count:featured_count + wildcard_max]
+            num_wildcards = min(include_wildcards, int(len(wildcard_pool)/2))
             if wildcard_pool:
-                wildcard = random.choice(wildcard_pool)
+                for i in range(num_wildcards):
+                    wildcard = random.choice(wildcard_pool)
+                    wildcards.append(wildcard)
 
         # Group remaining articles by category
         categorized = defaultdict(list)
         for article in self.articles:
-            if article not in featured and article != wildcard:
+            if article not in featured and article not in wildcards:
                 categorized[article['newsletter_category']].append(article)
 
         # Build HTML with inline styles (Substack-friendly)
-        html_parts = []
+        html_parts = ["<html>","<body>"] 
 
-        # Container with max-width for readability
+        # Container with max-width for readability (why not use 100% or EM/VW units?)
         html_parts.append('<div style="font-family: Georgia, serif; max-width: 700px; margin: 0 auto; line-height: 1.7; color: #1a1a1a;">')
 
         # Header
         now = datetime.now() # in local time, not UTC, for display purposes (switch to UTC?)
         scoring_label = "Daily Average" if scoring_method == 'daily_average' else "Standard"
+        lookback_text = f"• {days_back} day lookback" if days_back>0 else ""
 
         html_parts.append(f'''
         <div style="text-align: center; padding: 40px 20px; margin-bottom: 40px;">
             <h1 style="font-size: 36px; font-weight: 700; color: #1a1a1a; margin: 0 0 10px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Newsletter Digest</h1>
             <div style="font-size: 16px; color: #666; margin-bottom: 8px;">{now.strftime('%A, %B %d, %Y')}</div>
             <div style="font-size: 14px; color: #666; margin-bottom: 8px;">{len(featured)} Featured • {len(self.articles)} Total Articles</div>
-            <div style="font-size: 13px; color: #888; font-style: italic;">{scoring_label} scoring (engagement + length) • {days_back} day lookback • {len(self.newsletters)} newsletters</div>
+            <div style="font-size: 13px; color: #888; font-style: italic;">{scoring_label} scoring (engagement + length) {lookback_text} • {len(self.newsletters)} newsletters</div>
         </div>
         ''')
         
+        # Inline styles for article headers (these are currently identical; consolidate?)
+        h2_style='style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 1px solid #eee; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;"'
         # Featured Section
         if featured:
-            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 1px solid #eee; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Featured Articles</h2>')
+            html_parts.append(f'<h2 {h2_style}>Featured Articles</h2>')
 
             for i, article in enumerate(featured, 1):
                 html_parts.append(self._format_article_featured(article, number=i))
 
         # Wildcard Section
-        if wildcard:
-            html_parts.append('<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 1px solid #eee; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">Wildcard Pick</h2>')
-            html_parts.append(self._format_article_featured(wildcard, wildcard=True))
+        if len(wildcards)>0:
+            html_parts.append(f'<h2 {h2_style}>Wildcard Pick{"s" if len(wildcards)>1 else ""}</h2>')
+
+            for i, article in enumerate(wildcards, 1):
+                html_parts.append(self._format_article_featured(article, number=(i if len(wildcards)>1 else None), wildcard=True, verbose=verbose))
 
         # Categorized Sections
         for category in sorted(categorized.keys()):
             articles = categorized[category]
 
             if articles:
-                html_parts.append(f'<h2 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin: 40px 0 20px 0; padding-bottom: 8px; border-bottom: 1px solid #eee; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;">{category} ({len(articles)})</h2>')
+                html_parts.append(f'<h2 {h2_style}>{category} ({len(articles)})</h2>') # KJS add category count to title
 
                 # TO DO: If not showing scores, consider grouping by newsletter and then ordering by date descending
                 for article in articles:
-                    html_parts.append(self._format_article_compact(article,show_scores))
+                    html_parts.append(self._format_article_compact(article,show_scores=show_scores,verbose=verbose))
 
         html_parts.append('</div>')
+        html_parts.append('</body>')
+        html_parts.append('</html>')
 
         return '\n'.join(html_parts)
 
-    '''
-    KJS 2025-11-13 Refactored line1 formatting out from featured and compact functions
-    '''
-    def _format_article_line1(self, article):
 
-        # First line: Newsletter name, author(s), and date
-        first_line_parts = [article["newsletter_name"]]
-        if article.get('authors') and len(article['authors']) > 0:
-            author_text = ' & '.join(article['authors'])
-            first_line_parts.append(f"by {author_text}")
-        days_ago = (datetime.now(timezone.utc) - article['published']).days  # use max (, 1) here?
-        first_line_parts.append(f" {days_ago}d ago ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show in UTC?)
+    ''' Style definitions shared among featured/wildcard and compact articles '''
+    ARTICLE_DIV_STYLE_START="<span style=\"margin-bottom: 40px; padding: 15px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 18px; color: #666; line-height: 1.6;\">"
+    ARTICLE_DIV_STYLE_END="</span>"
 
-        return f'<div>{" • ".join(first_line_parts)}</div>'
-                
-    '''
-    KJS 2025-11-13 Refactored formatting of engagement metrics out from featured and compact functions
-    '''
-    def _format_engagement_metrics_and_score(self, article, number=None, show_scores=True):
-        # Add engagement metrics if present
-        engagement_html = ''
-        metrics = []
-        if article['comment_count'] > 0:
-            metrics.append(f"{article['comment_count']} comments")
-        if article['reaction_count'] > 0:
-            metrics.append(f"{article['reaction_count']} likes")
-        if article['restack_count'] > 0:
-            metrics.append(f"{article['restack_count']} restacks")
+    def _format_article_line0(self, article, number=None, wildcard=False):
+        '''
+        KJS 2025-11-16 Refactored line0 formatting out from featured and compact functions
+        Makes the article title a hyperlink with mouseover text
+        '''
 
-        engagement_html += f'<div>'
-        if metrics:
-            engagement_html += f'{" • ".join(metrics)}'
-            
-        # Add word count and score
-        word_count = article.get('word_count', 0)            
-        if word_count > 0:
-            words_line = f' • {word_count:,} words'
-            engagement_html += words_line
-        if show_scores:
-            score = article.get('score', 0)
-            score_line = f' • Score: {score:.1f}'
-            engagement_html += score_line
-        engagement_html += '</div>'        
-        return engagement_html
-
-    '''
-    Featured articles include numbers or wildcard designators with the article title, and the article summary
-    They are otherwise the same as compact articles.
-    '''
-    def _format_article_featured(self, article, number=None, wildcard=False):
-        """Format a featured article with full details"""
-        # Title
+        # Augment title with number and/or wildcard indicator if appropriate
         title_text = article['title']
         if number:
             title_text = f"{number}. {title_text}"
         if wildcard:
             title_text = f"🎲 {title_text}"
+        
+        line0_style_start='<span style="font-size: 20px; font-weight: 700; line-height: 1.3; margin-bottom: 8px;">'
+        line0_style_end='</span>'
 
-        # Build engagement lines
-        engagement_html = f'<div style="font-size: 13px; color: #666; line-height: 1.6;">'
+        # create title hyperlink; add mouseover text for accessibility
+        line0_content = f"<a title=\"{article['title']}\" href=\"{article['link']}\" style=\"color: #1a1a1a; text-decoration: none;\">{title_text}</a>"
+
+        return f"{line0_style_start}{line0_content}{line0_style_end}"
+        
+    def _format_article_line1(self, article, add_newsletter_links=True, verbose=VERBOSE_DEFAULT):
+        '''
+        KJS 2025-11-13 Refactored line1 formatting out from featured and compact functions
+        Handles newsletter name, author name, date (days ago and publication date)
+        '''
 
         # First line: Newsletter name, author(s), and date
-        engagement_html += self._format_article_line1(article)
+        #first_line_parts = [article["newsletter_name"]] 
+        # KJS 2025-11-16 make newsletter name a hyperlink
+        newsletter_name = article['newsletter_name']
+        newsletter_url = ''
+        for newsletter in self.newsletters:
+            if newsletter['name']==newsletter_name:
+                newsletter_url = newsletter['url']
+                #if verbose: print(f"Matched newsletter {newsletter_name} to url {newsletter_url}")
+        if len(newsletter_url)>0 and add_newsletter_links:
+            newsletter_link = f"<a title=\"Newsletter: {newsletter_name}\" href=\"{newsletter_url}\" style=\"color: #1a1a1a; font-weight: bold; text-decoration: none;\">{newsletter_name}</a>"
+        else:
+            newsletter_link = f"<b>{newsletter_name}</b>"
+        first_line_parts=[f"{newsletter_link}"]
 
+        # KJS Prepare to hyperlink the first author's name to their Substack profile handle
+        if article.get('authors') and len(article['authors']) > 0:
+            author_text = ' & '.join(article['authors'])
+            first_line_parts.append(f"by <b><a style='color: #1a1a1a; font-weight: bold; text-decoration: none;' title='Author: {author_text}'>{author_text}</a></b>")
+        # Otherwise author(s) are unknown, maybe no byline in the article.
+        # Possible contingency: use the author name and handle from the newsletter, if it's available?
+
+        days_ago = (datetime.now(timezone.utc) - article['published']).days  # use max (, 1) here?
+
+        first_line_parts.append(f" {days_ago}d ago ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Add actual date published (show it's UTC?)
+
+        line1_style_start=self.ARTICLE_DIV_STYLE_START
+        line1_style_end=self.ARTICLE_DIV_STYLE_END
+        line1_content = f'{" • ".join(first_line_parts)}'
+        return f'{line1_style_start}{line1_content}{line1_style_end}'
+                
+    def _format_engagement_metrics_and_score(self, article, number=None, show_scores=True):
+        '''
+        KJS 2025-11-13 Refactored formatting of engagement metrics out from featured and compact functions. Content only, no style (yet)
+        '''
+        # Add engagement metrics if present and non-zero
+        engagement_html = ''
+        metrics = []
+        if article['comment_count'] > 0:
+            metrics.append(f"{int(article['comment_count'])} comments")
+        if article['reaction_count'] > 0:
+            metrics.append(f"{int(article['reaction_count'])} likes")
+        if article['restack_count'] > 0:
+            metrics.append(f"{int(article['restack_count'])} restacks")
+
+        #engagement_html += f'<div>'
+        engagement_style_start = '<span style="font-size: 16px; color: #666; line-height: 1.6;">'
+        engagement_style_end = '</span>'
+
+        engagement_html = "<br>"+engagement_style_start
+        if metrics:
+            engagement_html += f'{" • ".join(metrics)}'
+            
+        # Add word count and score
+        word_count = int(article.get('word_count', 0))
+        if word_count > 0:
+            # KJS 2025-11-17 Avoid the leading * if there are no metrics (no likes, comments, or restacks)
+            words_line = f'{" • " if len(metrics)>0 else ""}{word_count:,} words'
+            engagement_html += words_line
+        if show_scores:
+            score = article.get('score', 0)
+            score_line = f' • Score: {score:.1f}'
+            engagement_html += score_line
+        #engagement_html += '</div>'        
+        engagement_html += engagement_style_end
+
+        return engagement_html
+
+    def _format_article_summary(self, article):
+        ''' Format article summary (only used on featured and wildcard articles, at present) '''
+        summary_html = f'<br><span style="font-size: 18px; font-style:italic; line-height: 1.3; color: #1a1a1a; margin-top: 12px;">{article["summary"]}</span>' if article["summary"] else ''
+        return summary_html
+
+    def _format_article_featured(self, article, number=None, wildcard=False, verbose=VERBOSE_DEFAULT):
+        '''Format a featured article with full details
+        Featured articles include numbers or wildcard designators with the article title, and the article summary. They are otherwise the same as compact articles.
+        '''
+
+        # Title
+        line0_html = self._format_article_line0(article, number, wildcard)
+
+        # First line: Newsletter name, author(s), and date
+        line1_html = self._format_article_line1(article, verbose)
+
+        # Build engagement lines (TO DO: Make font size and line height responsive)
         # Add line with engagement metrics and score 
-        engagement_html += self._format_engagement_metrics_and_score(article, show_scores=True)        
+        engagement_html = self._format_engagement_metrics_and_score(article, show_scores=True)        
+        # Add summary if available (only for featured and wildcard)
+        summary_html = self._format_article_summary(article)
 
-        engagement_html += '</div>'
+        # Build HTML - treat the title like a header
+        return f'''
+        <h3>{line0_html}</h3>
+        <div>
+        {line1_html}
+        {engagement_html}
+        {summary_html}
+        </div>
+        '''
 
-        # Add summary if available
-        summary_html = f'<div style="font-size: 17px; font-style:italic; line-height: 1.7; color: #1a1a1a; margin-top: 12px;">{article["summary"]}</div>' if article['summary'] else ''
+    def _format_article_compact(self, article, show_scores, verbose=VERBOSE_DEFAULT):
+        ''' Format a compact article (for category sections) - no numbers, summary, different HTML styling '''
+
+        """Format a compact article with fewer details, no numbering"""
+        # Title as hyperlink
+        line0_html = self._format_article_line0(article, number=None, wildcard=False)
+
+        # First line: Newsletter name, author(s), and date
+        line1_html = self._format_article_line1(article, verbose)
+
+        # Build engagement lines (TO DO: Make font size and line height responsive)
+        # Add line with engagement metrics and score 
+        engagement_html = self._format_engagement_metrics_and_score(article, show_scores=show_scores)
+        
+        # No summary for compact
 
         # Build HTML
         return f'''
-        <div style="margin-bottom: 40px;">
-            <div style="font-size: 22px; font-weight: 700; line-height: 1.3; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-                <a href="{article['link']}" style="color: #1a1a1a; text-decoration: none;">{title_text}</a>
-            </div>
-            {engagement_html}
-            {summary_html}
+        <h3>{line0_html}</h3>
+        <div>
+        {line1_html}
+        {engagement_html}
         </div>
         '''
 
-    '''
-    Format a compact article (for category sections) - no numbers, summary, different HTML styling
-    '''
-    def _format_article_compact(self, article, show_scores):
-        # Build engagement lines (SEPARATE LINES)
-        engagement_html = f'<div style="font-size: 13px; color: #666; line-height: 1.6;">'
+    def count_article_for_newsletter(self, name, verbose=VERBOSE_DEFAULT):
+        ''' count one more article found for a newsletter '''
+        for newsletter in self.newsletters:
+            if newsletter['name']==name:
+                newsletter['article_count'] += 1
+                return 1
+        if verbose:
+            print(f"Logic error: article in newsletter {name} cannot be counted, not found in list")
+            print(f"{self.newsletters}")
+        return 0
+                
+    def read_digest_csv(self, csv_path, verbose=VERBOSE_DEFAULT):
+        ''' Read digest data from CSV file for reprocessing (reformatting) '''
 
-        # First line: Newsletter name, author(s), and date
-        engagement_html += self._format_article_line1(article)
+        articles_df=pd.DataFrame()
+        try:
+            articles_df = pd.read_csv(csv_path)
+        except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
+            print(f"\n❌ ERROR: Reading from CSV digest data file '{csv_path}' failed: {e}\n")
+            return (-1)
 
-        # Add line with engagement metrics and score 
-        engagement_html += self._format_engagement_metrics_and_score(article, show_scores=show_scores)        
+        if len(articles_df)<1:
+            print(f"❌ Error: No article rows read from CSV digest data file {csv_path}")
+            return -1
+        if verbose:
+            print(f"Read from CSV file: {articles_df.head()}")
+        
+        # Sanity check: Maybe this is a newsletter file and they set the runstring flag the wrong way
+        if "Newsletter Name" in articles_df.columns and "Website URL" in articles_df.columns:
+            print(f"❌ Error: Newsletter data, not article data, detected in file {csv_path}")
+            print(f"Please unset reuse_csv_data to fetch articles for these newsletters, or set --csv_path to specify an article data file from a previous run.")
+            return -1
+            
+        articles=[]
+        newsletters=[]
+        try:
+            # Repopulate the articles object from the dataframe
+            for i in range(len(articles_df)):
+                
+                # Extract article data from file data
+                #   Category	Date Published	Authors	Article Link	Newsletter Link	
+                #   Summary	Words	Likes	Comments	Restacks	Raw Score	Score
+                # 'Article Link' contains article title and link in markdown format
+                # 'Newsletter Link' contains newsletter name and url in markdown format
 
-        engagement_html += '</div>'
+                # KJS 2025-11-17 Incorporate author and handle
+                writer_name = str(articles_df.at[i,'Writer Name']).strip()
+                writer_handle = str(articles_df.at[i,'Writer Handle']).strip()
+                title = str(articles_df.at[i,'Article Title']).strip()
+                link = str(articles_df.at[i,'Article URL']).strip()
+                name = str(articles_df.at[i,'Newsletter Name']).strip()
+                url = str(articles_df.at[i,'Newsletter URL']).strip()      
+                authors = str(articles_df.at[i,'Authors']).strip()
+                category = str(articles_df.at[i,'Category']).strip()                
+                datetime_value = datetime.fromisoformat(articles_df.at[i,'Date Published'])
 
-        return f'''
-        <div style="padding: 15px 0;">
-            <div style="font-size: 18px; font-weight: 600; line-height: 1.4; margin-bottom: 5px;">
-                <a href="{article['link']}" style="color: #1a1a1a; text-decoration: none;">{article['title']}</a>
-            </div>
-            {engagement_html}
-        </div>
-        '''
+                # First, add the newsletter if new. Ignore author name for now (we are not matching) and collections.
+                self.add_newsletter(name, url, writer_name=writer_name, writer_handle=writer_handle, category=category, collections='', verbose=verbose)  # partially blank
 
-    '''Save digest data to CSV file '''
-    def save_digest_csv(self, csv_digest_file):
+                # Now do the article, and count it
+                article = {
+                    'title':               title,
+                    'link':                link,
+                    'summary':             articles_df.at[i,'Summary'].strip(),
+                    'published':           datetime_value,
+                    'newsletter_name':     name, 
+                    'newsletter_link':     url, 
+                    'writer_name':         writer_name, 
+                    'writer_handle':       writer_handle, 
+                    'newsletter_category': category,
+                    'authors':            [authors], # 1 name, put in array (stub for now)
+                    'word_count':          int(articles_df.at[i,'Words']),
+                    'comment_count':       int(articles_df.at[i,'Comments']),
+                    'reaction_count':      int(articles_df.at[i,'Likes']),
+                    'restack_count':       int(articles_df.at[i,'Restacks']),
+                    'raw_score':           articles_df.at[i,'Raw Score'],
+                    'score':               articles_df.at[i,'Score'],
+                }
+                articles.append(article)            
+
+                # Need to find the right newsletter to bump its count.
+                self.count_article_for_newsletter(name, verbose)
+
+        except Exception as e:        
+            # Most likely: this isn't a valid saved article data file - one or more column names were not found
+            print(f"\n❌ ERROR: Exception while processing CSV digest data file '{csv_path}': {e}\n")
+            traceback.print_exc()
+            return (-1)
+       
+        print(f"\n✅ Data for {len(articles)} digest articles in {len(self.newsletters)} newsletters read from: {csv_path}")
+        self.articles=articles
+        return len(self.articles)
+
+    def save_digest_csv(self, csv_digest_file, verbose=VERBOSE_DEFAULT):
+        '''Save digest data to CSV file '''
         
         # Save articles to a dataframe
-        if not self.articles:
-            print(f"No articles to save to CSV file {csv_digest_file}")
+        if not self.articles: # Ignore len(self.articles)<1 and go ahead & make an empty file in the right format
+            print(f"❌ Error: No articles to save to CSV file {csv_digest_file}")
             return 0
         
         # Save the dataframe to the CSV file specified
         try:
-            #articles_df = pd.DataFrame(self.articles)
             articles_df = pd.DataFrame()
             
             # Rename and reformat columns, eg the list of authors, and make two links display-ready (markdown-compatible)            
             i=0
             for article in self.articles:
-                articles_df.at[i,'Category']  = article['newsletter_category']
-                articles_df.at[i,'Date Published'] = article['published']
-                articles_df.at[i,'Authors'] = ' & '.join(article['authors'])
-                articles_df.at[i,'Article Link'] = f"[{article['title']}]({article['link']})"
-                articles_df.at[i,'Newsletter Link'] = f"[{article['newsletter_name']}]({article['newsletter_link']})"
+                articles_df.at[i,'Category']        = article['newsletter_category']
+                articles_df.at[i,'Date Published']  = article['published'].isoformat()
+                articles_df.at[i,'Authors']         = ' & '.join(article['authors'])
+                # Future: Substack handle of primary author
+                # KJS 2025-11-17 Make markdown link and handle any [] that happen to appear in the article title
+                articles_df.at[i,'Article Title']   = article['title'] # Store separately so we don't have to re-parse
+                articles_df.at[i,'Article URL']     = article['link']
+                articles_df.at[i,'Article Link']    = make_markdown_link(article['title'],article['link'])
+                articles_df.at[i,'Newsletter Name'] = article['newsletter_name']
+                articles_df.at[i,'Newsletter URL']  = article['newsletter_link']
+                articles_df.at[i,'Newsletter Link'] = make_markdown_link(article['newsletter_name'],article['newsletter_link'])
+                # TO DO: add newsletter writer name and writer handle??
+                articles_df.at[i,'Writer Name'] = article['writer_name']      # from newsletter CSV file
+                articles_df.at[i,'Writer Handle'] = article['writer_handle']  # from newsletter CSV file
                 articles_df.at[i,'Summary']   = article['summary']
-                articles_df.at[i,'Words']     = article['word_count']
-                articles_df.at[i,'Likes']     = article['reaction_count']
-                articles_df.at[i,'Comments']  = article['comment_count']
-                articles_df.at[i,'Restacks']  = article['restack_count']
+                articles_df.at[i,'Words']     = int(article['word_count'])
+                articles_df.at[i,'Likes']     = int(article['reaction_count'])
+                articles_df.at[i,'Comments']  = int(article['comment_count'])
+                articles_df.at[i,'Restacks']  = int(article['restack_count'])
                 articles_df.at[i,'Raw Score'] = article['raw_score']
                 articles_df.at[i,'Score']     = article['score']
+                #if verbose: print(article)
                 i += 1
 
             articles_df.to_csv(csv_digest_file, index=False)
 
         except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
-            print(f"\nERROR: Writing to CSV digest output file '{csv_digest_file}' failed: {e}\n")
+            print(f"\n❌ ERROR: Writing to CSV digest output file '{csv_digest_file}' failed: {e}\n")
             return (-1)
         except Exception as e:        
-            print(f"\nERROR: Exception while writing CSV digest output file '{csv_digest_file}': {e}\n")
+            print(f"\n❌ ERROR: Exception while writing CSV digest output file '{csv_digest_file}': {e}\n")
             traceback.print_exc()
             return (-1)
        
@@ -708,7 +937,7 @@ class DigestGenerator:
         return len(self.articles)
         
 
-    def save_digest_html(self, html, filename='digest_output.html'):
+    def save_digest_html(self, html, filename='digest_output.html', verbose=VERBOSE_DEFAULT):
         """Save digest to HTML file"""
         output_path = Path(filename)
 
@@ -723,84 +952,105 @@ class DigestGenerator:
         print(f"   4. Paste into Substack editor")
         print(f"   5. Substack will preserve all formatting!")
 
-'''
-Non-Interactive function for digest generation (so it can be scripted and scheduled)
-'''
-def automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file):
+        return len(self.articles)
+
+def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file, reuse_csv_data=False):
+    ''' Non-Interactive function for digest generation (so it can be scripted and scheduled) '''
 
     generator = DigestGenerator()
 
-    # Step 1: Load newsletters
-    print("Step 1: Load Newsletters")
-    print("-" * 70)
+    if reuse_csv_data:
+        # skip some steps (this lets us run and test the scoring and HTML generation offline)
+        if verbose: print(f"Skipping Steps 1-3 for newsletter RSS reading and metrics gathering")
+        
+        result = generator.read_digest_csv(csv_path, verbose)
+        if verbose: print(f"Result from read_digest_csv: {result}")
+        if result <= 0:
+            return result
+        
+    else:
+        # Step 1: Load newsletters
+        print("Step 1: Load Newsletters")
+        print("-" * 70)
 
-    if not generator.load_newsletters_from_csv(csv_path, verbose):
-        return -1
-    print()
+        if not generator.load_newsletters_from_csv(csv_path, verbose):
+            return -1
+        print()
 
-    # Step 2: Configuration
-    print("Step 2: Digest Configuration")
-    print("-" * 70)
-    print()
+        # Step 2: Configuration
+        print("Step 2: Digest Configuration")
+        print("-" * 70)
+        print()
 
-    # Step 3: Fetch articles
-    print("Step 3: Fetch Articles")
-    print("-" * 70)
-    articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, verbose=verbose) # TO DO: Update to handle start date-end date
+        # Step 3: Fetch articles
+        print("Step 3: Fetch Articles")
+        print("-" * 70)
+        articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, verbose=verbose) # TO DO: Update to handle start date-end date
 
-    if not articles:
-        print("\n❌ No articles found! Try increasing the lookback period.")
-        return -1
+        if not articles:
+            print("\n❌ No articles found! Try increasing the lookback period.")
+            return -1
 
-    print()
+        print()
 
-    # Step 4: Score articles
-    print("Step 4: Score Articles")
-    print("-" * 70)
-    generator.score_articles(use_daily_average=use_daily_average, verbose=verbose)
+        # Step 4: Score articles (TO DO: let reuse_csv_data repeat the scoring once the rest is working)
+        print("Step 4: Score Articles")
+        print("-" * 70)
+        generator.score_articles(use_daily_average=use_daily_average, verbose=verbose)
 
-    print()
+        print()
 
     # Step 5: Generate digest HTML and CSV and save them
     # Save the data on the articles to a dataframe, then to CSV (if option selected by user)
     print("Step 5: Save Digest")
     print("-" * 70)
+
+    # Save CSV data (even if reusing, in case scoring changed)
     if csv_digest_file and len(csv_digest_file)>0:
         print(f"Saving article data to {csv_digest_file}")
-        generator.save_digest_csv(csv_digest_file)
+        generator.save_digest_csv(csv_digest_file, verbose)
     else:
-        print(f"Skipping; no csv_digest_file name specified")
+        print(f"No csv_digest_file name specified; not saving data")
 
     print("-" * 70)
+
+    # Now the HTML page, using possibly-new scores and options
     html = generator.generate_digest_html(
         featured_count=featured_count,
-        include_wildcard=include_wildcard,
+        include_wildcards=include_wildcards,
         scoring_method=scoring_method,
-        show_scores=show_scores
+        show_scores=show_scores,
+        verbose=verbose
     )
-    generator.save_digest_html(html, output_file)
+    result = generator.save_digest_html(html, output_file, verbose=verbose)
 
-    return 0
+    return result
 
 ################################################################################
 '''
 Get all inputs interactively up front
 '''
-def interactive_cli():
+def interactive_cli(reuse_csv_data=False, output_csv_filename='', verbose=VERBOSE_DEFAULT):
 
-    csv_path = input("Path to CSV file (press Enter for 'my_newsletters.csv'): ").strip()
-    if not csv_path:
-        csv_path = 'my_newsletters.csv'
+    # Skip some of these prompts if we are reusing existing data
+    if reuse_csv_data:
+        # Consider adding these as parameters in the CSV file just so we can fetch them back?
+        # Days_back goes into the headers of the page, so we sort of need it, or the start-end dates.
+        # We also don't know the date the data extraction was run. We could estimate from the
+        # latest publication date on all of the articles, but it's likely off by some amount.
+        csv_path=''; days_back=None;
+    else:
+        csv_path = input("Path to CSV file with newsletter list (press Enter for 'my_newsletters.csv'): ").strip()
+        if not csv_path:
+            csv_path = 'my_newsletters.csv'
 
-    days_back = input("How many days back to fetch articles? (default: 7): ").strip()
-    days_back = int(days_back) if days_back.isdigit() else 7
+        days_back = input("How many days back to fetch articles? (default: 7): ").strip()
+        days_back = int(days_back) if days_back.isdigit() else 7
+        
+        # We do not currently prompt for other data reading and processing options, like retries.
+        # Consider adding later?
 
-    featured_count = input("How many featured articles? (default: 5): ").strip()
-    featured_count = int(featured_count) if featured_count.isdigit() else 5
-
-    wildcard = input("Include wildcard pick? (y/n, default: y): ").strip().lower()
-    include_wildcard = (wildcard != 'n')
-
+    # These prompts pertain to scoring and generating the HTML after the data is fetched, so ask them
     print("\nScoring method:")
     print("  1. Standard - Favors total engagement (50 likes last week > 10 likes today)")
     print("  2. Daily Average - Favors recent articles (10 likes today > 50 likes last week)")
@@ -808,14 +1058,22 @@ def interactive_cli():
     use_daily_average = scoring_choice == '2'
     scoring_method = 'daily_average' if use_daily_average else 'standard'
 
+    featured = input("How many featured articles? (default: 5): ").strip()
+    featured_count = int(featured) if featured.isdigit() else 5
+
+    wildcard = input("How many wildcard picks? (default: 1): ").strip()
+    include_wildcards = int(wildcard) if wildcard.isdigit() else 1
+
     scoring = input("Show scores on non-featured articles? (y/n, default: y): ").strip().lower()
     show_scores = (scoring != 'n')
 
     output_file = input("Output filename (default: digest_output.html): ").strip()
     if not output_file:
         output_file = 'digest_output.html'
+        
+    # We do not currently prompt for CSV file name, either as output or as input
 
-    return csv_path, days_back, featured_count, include_wildcard, use_daily_average, show_scores, output_file
+    return csv_path, days_back, featured_count, include_wildcards, use_daily_average, show_scores, output_file
 
 '''
 Handle interactive mode or scriptable runstring
@@ -829,19 +1087,20 @@ def main():
     # Allow interactive mode to be an option
     parser = argparse.ArgumentParser(description="Generate newsletter digest.")
     # Put these in alphabetical order to make it easier for users to understand the help text
-    parser.add_argument("--csv_path",         help="Path to CSV file (default='my_newsletters.csv')", default="my_newsletters.csv")
+    parser.add_argument("--csv_path",         help="Path to CSV file with newsletter list or saved article data (default='my_newsletters.csv')", default="my_newsletters.csv")
     parser.add_argument("--days_back",        help="How many days back to fetch articles (default=7)", type=int, default=7)
-    parser.add_argument("--featured_count",   help="How many articles to feature (default=10)", type=int, default=10)
+    parser.add_argument("--featured_count",   help="How many articles to feature (default=5)", type=int, default=5)
     parser.add_argument("--interactive",      help="Use interactive prompting for inputs? (default='n')", default='n')
     parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)", default='y')
     parser.add_argument("--max_retries",      help="Number of times to retry API calls (default=3)", type=int, default=3)
     parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
     parser.add_argument("--output_file_html", help="Output HTML filename (e.g., default 'digest_output.html'; use . for a default name)", default="")
+    parser.add_argument("--reuse_csv_data", help="Read article data from CSV Path instead of newslettere data; don't fetch data via RSS (default: n)", default="n")
     parser.add_argument("--scoring_choice",   help="Scoring method: 1=Standard, 2=Daily Average (default=1)",default='1')
     parser.add_argument("--show_scores",      help="Show scores outside the Featured section? (default=n)",default='n')
     parser.add_argument("--use_substack_api", help="Use Substack API to get engagement metrics? (default=n, get from RSS - restack counts not available)",default='n')
     parser.add_argument("--verbose",  help="More detailed outputs while program is running? (default='n')", default='n')
-    parser.add_argument("--wildcard", help="Include wildcard pick? (default=n)", default='n')
+    parser.add_argument("--wildcards", help="Number of wildcard picks to include (default=1)", type=int, default=1)
 
     print("=" * 70)
     print("📧 Standalone Newsletter Digest Generator") # if you get an encoding error here, set PYTHONIOENCODING=utf_8
@@ -850,55 +1109,85 @@ def main():
 
     result=0
     try:
+        now = datetime.now() # in local time, not UTC, for display purposes (switch to UTC?)
+        run_time = now.strftime('%Y-%m-%dT%H%M')
         args = parser.parse_args()
  
         csv_path          = args.csv_path
         days_back         = args.days_back
         featured_count    = args.featured_count
-        include_wildcard  = (args.wildcard[0].lower() != 'n')
+        include_wildcards = args.wildcards
         match_authors     = (args.match_authors[0].lower() == 'y')
         use_daily_average = args.scoring_choice == '2'
         show_scores       = (args.show_scores[0].lower() != 'n')
         use_Substack_API  = (args.use_substack_api[0].lower() != 'n')
         verbose           = (args.verbose[0].lower() != 'n')
         max_retries       = args.max_retries
-
+        reuse_csv_data    = (args.reuse_csv_data == 'y')
         output_file       = args.output_file_html.strip()
-        if not output_file or len(output_file) < 1:  # use a default name
-            output_file = 'digest_output.html'    
-        elif len(output_file) < 2:  # create a default name based on input file name
-            output_file = csv_path.replace('.csv','.digest_output.html')
-            
+
         csv_digest_file = args.output_file_csv.strip()
+        # TO DO: Confirm that csv_path file exists
+        if len(csv_path)<5:
+            print(f"❌ Cannot use {csv_path} as file path for newsletter CSV input or article data. Aborting.")
+            return -1
+        if verbose:
+            if reuse_csv_data:
+                print(f"Reusing article data from {csv_path}")
+                print(f"Ignoring Days Back, Match Authors, Use Substack API, and Max Retries (not relevant)")
+            else:
+                print(f"Reading newsletter data from {csv_path}")
+        
+        # Set default HTML output filename based on the CSV input name
+        if not output_file or len(output_file) < 5:  # use a default name
+            output_file = csv_path.replace(".csv",f".digest_output.{run_time}.html")
+        
+        # Handle CSV filename defaults
         if not csv_digest_file or len(csv_digest_file)<1:
             csv_digest_file = ''        # default is no CSV output file
         elif len(csv_digest_file) < 2:  # create a default name based on input file name
-            csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
+            #csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
+            csv_digest_file = csv_path.replace(".csv",f".digest_output.{run_time}.csv")
 
         interactive=(args.interactive[0].lower() != 'n')
         if interactive:
             # prompt for (almost) everything
-            csv_path, days_back, featured_count, include_wildcard, use_daily_average, show_scores, output_file = interactive_cli()
+            csv_path, days_back, featured_count, include_wildcards, use_daily_average, show_scores, output_file = interactive_cli(reuse_csv_data)
             print("\nRunning digest generator with defaults and settings from interactive prompts\n")
         else:
             print("\nRunning digest generator with defaults and settings from runstring.\n(Use --interactive to be prompted.)\n")
 
         scoring_method = ('daily_average' if use_daily_average else 'standard')
         if verbose:
-            print(f"CSV path: {csv_path}")
-            print(f"Days back: {days_back}")
-            print(f"Featured count: {featured_count}")
-            print(f"Include wildcard? {include_wildcard}")
-            print(f"Match authors? {match_authors}")
-            print(f"Show scores? {show_scores}")
-            print(f"Scoring method? {scoring_method}")
-            print(f"Use Substack API for engagement metrics? {use_Substack_API}")
-            print(f"Max retries on Substack RSS feed and API calls? {max_retries}")
+            if not reuse_csv_data:
+                print(f"Fetching data via RSS for generating digest.")
+                print(f"  Days back: {days_back}")
+                print(f"  Match authors? {match_authors}")
+                print(f"  Use Substack API for engagement metrics? {use_Substack_API}")
+                print(f"  Max retries on Substack RSS feed and API calls? {max_retries}")
+                print()
+
+            # These parameters are for generating the HTML, so always show them
+            print(f"Digest formatting options")
+            print(f"  Scoring method? {scoring_method}")
+            print(f"  Articles to Feature: {featured_count}")
+            print(f"  Wildcard Articles: {include_wildcards}")
+            print(f"  Show scores on non-featured? {show_scores}")
             print(f"Output file HTML: {output_file}")
-            print(f"Output file CSV: {csv_digest_file}")
+            if len(csv_digest_file)>0: 
+                print(f"Output file CSV: {csv_digest_file}")
             print()
         
-        result=automated_digest(csv_path, days_back, featured_count, include_wildcard, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file)
+        result=automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average,
+            scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, 
+            csv_digest_file, reuse_csv_data)
+
+        if result >= 0:
+            print("\n" + "=" * 70)
+            print("✅ Digest generation complete!")
+            print("=" * 70)
+            if verbose: print(f"Result: {result}")
+        return result
     
     except KeyboardInterrupt:
         print("\n\n👋 Cancelled by user")
@@ -908,12 +1197,7 @@ def main():
         print(f"\n❌ Error: {e}")
         traceback.print_exc()
         return -1
-
-    print("\n" + "=" * 70)
-    print("✅ Digest generation complete!")
-    print("=" * 70)
     
-    return result
     
 if __name__ == '__main__':
     result = main()

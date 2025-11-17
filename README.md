@@ -65,29 +65,35 @@ That's it! You're ready to go.
 **python digest_generator.py --interactive Y** - prompt for all configuration options
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
-usage: digest_generator.py [-h] [--csv_path CSV_PATH] [--days_back DAYS_BACK] [--featured_count FEATURED_COUNT]
-                           [--max_retries MAX_RETRIES] [--wildcard WILDCARD] [--scoring_choice SCORING_CHOICE]
-                           [--show_scores SHOW_SCORES] [--use_substack_api USE_SUBSTACK_API]
-                           [--output_file OUTPUT_FILE] [--csv_digest_file CSV_DIGEST_FILE] [--verbose VERBOSE]
-                           [--interactive INTERACTIVE]
+usage: digest_generator.py [-h] [--csv_path CSV_PATH] [--days_back DAYS_BACK] 
+						   [--featured_count FEATURED_COUNT] [--interactive INTERACTIVE] 
+                           [--match_authors MATCH_AUTHORS] [--max_retries MAX_RETRIES] 
+						   [--output_file_csv OUTPUT_FILE_CSV] [--output_file_html OUTPUT_FILE_HTML]  
+                           [--scoring_choice SCORING_CHOICE]
+                           [--show_scores SHOW_SCORES] 
+						   [--use_substack_api USE_SUBSTACK_API]
+                           [--verbose VERBOSE] [--wildcards WILDCARDS]
 
 Generate newsletter digest.
 
 options:
   -h, --help            show this help message and exit
-  --csv_digest_file CSV_DIGEST_FILE
-                        Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name
-  --csv_path CSV_PATH   Path to CSV file (default='my_newsletters.csv')
-  --days_back DAYS_BACK
-                        How many days back to fetch articles (default=7)
+  --csv_path CSV_PATH   Path to CSV file with newsletter list (default='my_newsletters.csv')
+  --days_back DAYS_BACK How many days back to fetch articles (default=7)
   --featured_count FEATURED_COUNT
-                        How many articles to feature (default=10)
+                        How many articles to feature (default=5)
   --interactive INTERACTIVE
                         Use interactive prompting for inputs? (default='n')
+  --match_authors MATCH_AUTHORS
+                        Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)
   --max_retries MAX_RETRIES
                         Number of times to retry API calls (default=3)
-  --output_file OUTPUT_FILE
+  --output_file_csv OUTPUT_FILE_CSV
+                        Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name
+  --output_file_html OUTPUT_FILE_HTML
                         Output HTML filename (e.g., default 'digest_output.html'; use . for a default name)
+  --reuse_csv_data REUSE_CSV_DATA
+                        CVS_PATH has the name of an output file from a previous run. Reuse it without re-fetching RSS data or metrics from Substack.
   --scoring_choice SCORING_CHOICE
                         Scoring method: 1=Standard, 2=Daily Average (default=1)
   --show_scores SHOW_SCORES
@@ -95,8 +101,7 @@ options:
   --use_substack_api USE_SUBSTACK_API
                         Use Substack API to get engagement metrics? (default=n, get from RSS - restack counts not available)
   --verbose VERBOSE     More detailed outputs while program is running? (default='n')
-  --wildcard WILDCARD   Include wildcard pick? (default=n)
-
+  --wildcards WILDCARDS How many wildcard picks to include? (default=1)
 ```
 
 ### Interactive prompts:
@@ -203,14 +208,14 @@ The digest includes:
 Top-scored articles with:
 - Numbered list (1, 2, 3...)
 - Full title with link
-- Newsletter name and author
-- Engagement stats (comments, likes)
-- Days since publication
+- Newsletter name with link
+- Author name
+- Days since publication and publication date
+- Engagement stats (comments, likes) and score
 - Article summary
-- Engagement score
 
-### 🎲 Wildcard Pick (optional)
-A random article from the next 10 highest-scored articles - helps surface hidden gems!
+### 🎲 Wildcard Picks (optional)
+One or more random articles from the next 10 highest-scored articles - helps surface hidden gems!
 
 ### 📂 Categorized Sections
 Remaining articles grouped by category:
@@ -221,9 +226,10 @@ Remaining articles grouped by category:
 
 Each article shows:
 - Title with link
-- Newsletter name
-- Engagement stats
+- Newsletter name with link and author
+- Author name
 - Days since publication and date of publication
+- Engagement stats (comments, likes) and (optionally) score
 
 ## How It Works
 
@@ -297,15 +303,16 @@ normalized_score = scale to 1-100 range
 #### Shared Settings
 
 **Weights (both methods):**
-- **Comments: 3×** (deeper engagement signal)
+- **Restacks: 3×** (deeper engagement signal, if available)
+- **Comments: 2×** (deeper engagement signal)
 - **Likes: 1×** (standard engagement)
 - **Length: 0.05 points per 100 words** (ensures non-zero scores)
 - **Score range: Always normalized to 1-100**
 
 **To customize scoring:**
-Edit the constants in `digest_generator.py` around line 250:
+Edit the constants in `digest_generator.py`:
 ```python
-COMMENT_WEIGHT = 3      # How much to weight comments (default: 3×)
+COMMENT_WEIGHT = 2      # How much to weight comments (default: 2×)
 LIKE_WEIGHT = 1         # How much to weight likes (default: 1×)
 LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 ```
@@ -339,17 +346,18 @@ LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 
 ### Scoring Weights
 
-To customize the scoring model, edit `digest_generator.py` around line 250:
+To customize the scoring model, edit `digest_generator.py`:
 
 ```python
 # SCORING CONFIGURATION - Edit these to change the scoring model
-COMMENT_WEIGHT = 3      # How much to weight comments (default: 3×)
+RESTACK_WEIGHT = 3      # How much to weight restacks (default: 3×, if available)
+COMMENT_WEIGHT = 2      # How much to weight comments (default: 2×)
 LIKE_WEIGHT = 1         # How much to weight likes (default: 1×)
 LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 ```
 
 **Effect of changes:**
-- Increase `COMMENT_WEIGHT` to prioritize discussions over passive engagement
+- Increase `COMMENT_WEIGHT` or `RESTACK_WEIGHT` to prioritize discussions over passive engagement
 - Increase `LENGTH_WEIGHT` to give more weight to longer, substantial articles
 - All scores are automatically normalized to 1-100 range
 
@@ -364,7 +372,7 @@ Edit styling around line 300+ in `digest_generator.py`:
 ### Article Limits
 
 - **Featured count**: Set via CLI prompt
-- **Articles per category**: Edit line ~350: `articles[:10]`
+- **Articles per category**: No limit
 
 ## Support
 
