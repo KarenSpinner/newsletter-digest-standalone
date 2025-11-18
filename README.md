@@ -42,6 +42,7 @@ Creates a formatted newsletter digest from your Substack subscriptions that you 
    - `Category` - For grouping articles (defaults to "Uncategorized")
    - `Collections` - Additional tags or groupings (optional, not currently used)
    - `Author` - Only include articles by a specific author for a newsletter. Put the full or partial author name to match in the column. Blank for a row means no author name matching on that newsletter.
+   - `Substack Handle` - If included, will be used in future to create hyperlinks to author names in the digest pages.
    
    **Note:** Currently only supports Substack newsletters with public RSS feeds.
 
@@ -62,47 +63,72 @@ That's it! You're ready to go.
 ```bash
 **python digest_generator.py --help** - show runstring commands
 **python digest_generator.py** - all default configuration options are used
-**python digest_generator.py --interactive Y** - prompt for all configuration options
+**python digest_generator.py --interactive Y** - prompt for main configuration options
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
-usage: digest_generator.py [-h] [--csv_path CSV_PATH] [--days_back DAYS_BACK] 
-						   [--featured_count FEATURED_COUNT] [--interactive INTERACTIVE] 
-                           [--match_authors MATCH_AUTHORS] [--max_retries MAX_RETRIES] 
-						   [--output_file_csv OUTPUT_FILE_CSV] [--output_file_html OUTPUT_FILE_HTML]  
+usage: digest_generator.py [-h] [--csv_path CSV_PATH] [--days_back DAYS_BACK]
+                           [--featured_count FEATURED_COUNT]
+                           [--interactive INTERACTIVE]
+                           [--match_authors MATCH_AUTHORS]
+                           [--max_retries MAX_RETRIES]
+                           [--output_file_csv OUTPUT_FILE_CSV]
+                           [--output_file_html OUTPUT_FILE_HTML]
+                           [--reuse_csv_data REUSE_CSV_DATA]
                            [--scoring_choice SCORING_CHOICE]
-                           [--show_scores SHOW_SCORES] 
-						   [--use_substack_api USE_SUBSTACK_API]
+                           [--show_scores SHOW_SCORES]
+                           [--use_substack_api USE_SUBSTACK_API]
                            [--verbose VERBOSE] [--wildcards WILDCARDS]
 
 Generate newsletter digest.
 
-options:
   -h, --help            show this help message and exit
-  --csv_path CSV_PATH   Path to CSV file with newsletter list (default='my_newsletters.csv')
-  --days_back DAYS_BACK How many days back to fetch articles (default=7)
+  --csv_path CSV_PATH   Path to CSV file with newsletter list or saved article
+                        data (default='my_newsletters.csv')
+  --days_back DAYS_BACK
+                        How many days back to fetch articles (default=7)
   --featured_count FEATURED_COUNT
                         How many articles to feature (default=5)
   --interactive INTERACTIVE
                         Use interactive prompting for inputs? (default='n')
   --match_authors MATCH_AUTHORS
-                        Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)
+                        Use Author column in CSV file to filter articles
+                        (default='y'; no effect if no such column in the file,
+                        or cell is blank)
   --max_retries MAX_RETRIES
                         Number of times to retry API calls (default=3)
   --output_file_csv OUTPUT_FILE_CSV
-                        Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name
+                        Output CSV filename for digest data (e.g.,
+                        'digest_output.csv'); default=none, use . for a
+                        default name
   --output_file_html OUTPUT_FILE_HTML
-                        Output HTML filename (e.g., default 'digest_output.html'; use . for a default name)
+                        Output HTML filename (e.g., default
+                        'digest_output.html'; omit or use . for a default
+                        name)
   --reuse_csv_data REUSE_CSV_DATA
-                        CVS_PATH has the name of an output file from a previous run. Reuse it without re-fetching RSS data or metrics from Substack.
+                        Read article data from CSV Path instead of newslettere
+                        data; don't fetch data via RSS (default: n)
   --scoring_choice SCORING_CHOICE
-                        Scoring method: 1=Standard, 2=Daily Average (default=1)
+                        Scoring method: 1=Standard, 2=Daily Average
+                        (default=1)
   --show_scores SHOW_SCORES
-                        Show scores outside the Featured section? (default=n)
+                        Show scores outside the Featured and Wildcard
+                        sections? (default=y)
   --use_substack_api USE_SUBSTACK_API
-                        Use Substack API to get engagement metrics? (default=n, get from RSS - restack counts not available)
-  --verbose VERBOSE     More detailed outputs while program is running? (default='n')
-  --wildcards WILDCARDS How many wildcard picks to include? (default=1)
+                        Use Substack API to get engagement metrics?
+                        (default=n, get from RSS - faster but restack counts
+                        are not available)
+  --verbose VERBOSE     More detailed outputs while program is running?
+                        (default='n')
+  --wildcards WILDCARDS
+                        Number of wildcard picks to include (default=1)
+
 ```
+To test different format or scoring settings without having to wait to re-fetch articles,
+run the program once using runstring option:
+  `--output_file_csv=(article_data_filename)`
+Then when you run the program again for testing, specify in the runstring: 
+  `--reuse_csv_file --csv_path=(article_data_filename)`. 
+This allows very fast iteration, even with no network connection, and repeatable tests.
 
 ### Interactive prompts:
 
@@ -120,7 +146,7 @@ You'll be asked:
    - Number of top articles to highlight
    - 3-7 is typical
 
-4. **Include wildcard?** (default: yes)
+4. **Include wildcards?** (default: 1)
    - Adds a random "hidden gem" from next 10 articles
    - Makes digest more interesting!
 
@@ -136,27 +162,31 @@ You'll be asked:
 
 ### Example session:
 ```
-========================================
+=========================================
 📧 Standalone Newsletter Digest Generator
-========================================
+=========================================
 
-Step 1: Load Newsletters
+Step 1: Digest Configuration
 ----------------------------------------
+
 Path to CSV file (press Enter for 'my_newsletters.csv'): [Enter]
-✅ Loaded 25 newsletters from CSV
 
-Step 2: Digest Configuration
-----------------------------------------
 How many days back to fetch articles? (default: 7): [Enter]
 How many featured articles? (default: 5): [Enter]
-Include wildcard pick? (y/n, default: y): [Enter]
+Include wildcard picks? (default: 1): [Enter]
 
 Scoring method:
-  1. Daily Average - Favors recent articles (10 likes today > 50 likes last week)
-  2. Standard - Favors total engagement (50 likes last week > 10 likes today)
-Choose scoring method (1/2, default: 2): [Enter]
+  1. Standard - Favors total engagement (50 likes last week > 10 likes today)
+  2. Daily Average - Favors recent articles (10 likes today > 50 likes last week)
+Choose scoring method (1/2, default: 1): [Enter]
 
 Show scores? (y/n, default: y): [Enter]
+
+Output filename (default: digest_output.html): [Enter]
+
+Step 2: Load Newsletters
+----------------------------------------
+✅ Loaded 25 newsletters from CSV
 
 Step 3: Fetch Articles
 ----------------------------------------
@@ -183,8 +213,6 @@ Step 4: Score Articles
 Step 5: Generate Digest
 ----------------------------------------
 📝 Generating digest HTML...
-
-Output filename (default: digest_output.html): [Enter]
 
 💾 Digest saved to: /path/to/digest_output.html
 
@@ -215,10 +243,10 @@ Top-scored articles with:
 - Article summary
 
 ### 🎲 Wildcard Picks (optional)
-One or more random articles from the next 10 highest-scored articles - helps surface hidden gems!
+Same content as Featured Articles. One or more random articles from the next 10 highest-scored articles - helps surface hidden gems!
 
 ### 📂 Categorized Sections
-Remaining articles grouped by category:
+Remaining articles grouped by category, using categories in the newsletter CSV file:
 - Business
 - Technology
 - Culture
@@ -226,7 +254,7 @@ Remaining articles grouped by category:
 
 Each article shows:
 - Title with link
-- Newsletter name with link and author
+- Newsletter name with link
 - Author name
 - Days since publication and date of publication
 - Engagement stats (comments, likes) and (optionally) score
@@ -251,7 +279,7 @@ You can choose between two scoring methods:
 
 **Formula:**
 ```python
-engagement = (comments × 3) + likes
+engagement = (comments × 2) + likes
 length = (word_count / 100) × 0.05
 raw_score = engagement + length
 normalized_score = scale to 1-100 range
@@ -312,6 +340,7 @@ normalized_score = scale to 1-100 range
 **To customize scoring:**
 Edit the constants in `digest_generator.py`:
 ```python
+RESTACK_WEIGHT = 3      # How much to weight restacks, if known (default: 3×)
 COMMENT_WEIGHT = 2      # How much to weight comments (default: 2×)
 LIKE_WEIGHT = 1         # How much to weight likes (default: 1×)
 LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
@@ -330,16 +359,18 @@ LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 ### "No articles found"
 - Try increasing the lookback period (14 or 21 days)
 - Some newsletters publish infrequently
-- Check that CSV has valid Substack URLs
+- Check that CSV has valid Substack URLs (newesletter writers sometimes change them)
 
 ### "HTTP errors" during fetch
 - Some newsletters may be temporarily down
-- Script will skip and continue with others
+- Script will retry a few times, then skip and continue with others
 - Normal to see a few failures in large lists
+- To reduce these failures, increase the number of retry attempts (set via the runstring)
 
 ### Engagement metrics are zero
 - Article may genuinely have no engagement yet
 - HTML parsing may have failed for that specific article
+- API calls to fetch engagement metrics may have timed out, even after retries
 - Articles are still included, just scored lower
 
 ## Customization
@@ -363,15 +394,17 @@ LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 
 ### HTML Styling
 
-Edit styling around line 300+ in `digest_generator.py`:
+Edit styling in `digest_generator.py`:
 - Font sizes
 - Colors
 - Spacing
 - Border styles
+Note that Substack will igmore these settings when you paste the digest into the Substack editor. However, they will work when viewing the HTML file in your browser.
 
 ### Article Limits
 
-- **Featured count**: Set via CLI prompt
+- **Featured count**: Set via CLI prompt or runstring
+- **Wildcard count**: Set via CLI prompt or runstring
 - **Articles per category**: No limit
 
 ## Support
@@ -380,4 +413,4 @@ Questions? Contact karen@wonderingabout.ai
 
 ## License
 
-Free to use and modify. No warranty provided.
+Free to use and modify for non-commercial purposes. No warranty provided.
