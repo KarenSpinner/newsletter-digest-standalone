@@ -40,7 +40,7 @@ import traceback
 
 ################################################################################
 ''' Default settings used for runstring and for interactive '''
-DEFAULT_DAYS_BACK=7;       MAX_DAYS_BACK=60
+DEFAULT_DAYS_BACK=7;       MAX_DAYS_BACK=2000   # Use MAX_PER_AUTHOR=1 with MAX_DAYS_BACK to get the latest for each newsletter+author, even if not recent
 DEFAULT_FEATURED_COUNT=5;  MAX_FEATURED_COUNT=20
 DEFAULT_WILDCARD_PICKS=1;  MAX_WILDCARD_PICKS=20
 DEFAULT_RETRY_COUNT=3;     MAX_RETRY_COUNT=10
@@ -142,10 +142,10 @@ class DigestGenerator:
             return None
 
         # Get the optional columns
-        category = row.get('Category', 'Uncategorized')
-        collections = row.get('Collections', '')
-        writer_name = row.get('Author', '')             # KJS 2025-11-13 input from newsletter CSV file
-        writer_handle = row.get('Substack Handle', '')  # KJS 2025-11-17 input from newsletter CSV file
+        category = row.get('Category', 'Uncategorized').strip()
+        collections = row.get('Collections', '').strip()
+        writer_name = row.get('Author', '').strip()     # KJS 2025-11-13 input from newsletter CSV file
+        writer_handle = row.get('Substack Handle', '').strip() # KJS 2025-11-17 input from newsletter CSV file
 
         newsletter=self._add_newsletter(newsletter_name, website_url, writer_name, writer_handle, category, collections, verbose)
         return newsletter
@@ -162,10 +162,16 @@ class DigestGenerator:
         # --reuse_csv_data runstring option, this section will choke on trying to find 
         # 'Website URL'. That's sort of ok, although it would be nicer to detect this
         # and tell them to set the runstring option.
-        with open(csv_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                self._process_newsletter(row, verbose)
+        try:
+            with open(csv_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    self._process_newsletter(row, verbose)
+
+        except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
+            print(f"\n❌ ERROR: Reading from CSV newsletter data file '{csv_path}' failed: \n{e}\n")
+            if verbose: traceback.print_exc()
+            return False
 
         # Check added 2025-11-13 KJS
         if len(self.newsletters) < 1: # no errors, but no newsletters found
@@ -178,7 +184,7 @@ class DigestGenerator:
     def _api_call_retries(self, headers, url, max_retries=3, verbose=VERBOSE_DEFAULT):
         ''' Retry API calls with increasing delays if we get 429 (or other) errors '''
 
-        retry_count=0; delay=1.0
+        retry_count=0; delay=2.0 # KJS 2025-11-18 Wait 2 sec instead of 1 if a timeout
         while retry_count <= max_retries:  # Make sure we go through here once even if max_retries=0
 
             try:
@@ -188,18 +194,23 @@ class DigestGenerator:
                     #if verbose: print(f"\nCall succeeded after {retry_count} retries.")
                     return response
 
-                print(f" ⚠️ HTTP {response.status_code}", end='', flush=True)
-
                 # KJS 2025-11-13 If response is 429, Too Many Requests, wait
                 # a while and then try again. We don't want to omit anyone.
                 # (This might induce retry delays for unrecoverable errors such as 404,
                 # but we accept that. This way it handles other intermittent errors 
                 # as well as 429.)
+
+                # Suppress error codes other than 429 if we will retry - just show the stopwatch (waiting) below, instead
                 retry_count += 1            
                 if retry_count <= max_retries:
                     #if verbose: print(f"\nWaiting {delay} seconds before retry #{retry_count} ... ")
+                    print("⏱",end='', flush=True)                    
                     time.sleep(delay) 
                     delay *= 2.0  # double the delay for next time if this try fails
+                else:
+                    # not retrying or no more retries; show the error code
+                    print(f" ⚠️ HTTP {response.status_code}", end='', flush=True)
+                    return None
             
             except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError, requests.exceptions.RequestException) as e:
                 # If offline, calls seem to fail with 11001, getaddrinfo failed 
@@ -221,8 +232,26 @@ class DigestGenerator:
             
         # If we get here, we exceeded our max retries. Give up on this call.
         return None
+        
+    def _author_newsletter_count(self, newsletter_name, authors, articles, verbose=VERBOSE_DEFAULT):
+        ''' see if we have hit our limit of articles per author-newsletter combo '''
+        count=0
+        for article in articles:
+            if article['newsletter_name']==newsletter_name:
+                # this also works if author is unknown; limit to one of these per newsletter, too
+                if article['authors']==authors: count += 1
+        return count
+        
+    def _compare_author_name(self, authors, writer_name):
+        ''' compare specific full or partial writer name to the list of article authors '''
+        match=False
+        for author in authors:
+            # allow for partial name matches, i.e. writer_name can be 'Nadina'
+            # while full author name on the article is '*** Nadina Lisbon ***'
+            if writer_name in author: match=True
+        return match
 
-    def fetch_articles(self, days_back=DEFAULT_DAYS_BACK, use_Substack_API=True, max_retries=MAX_RETRY_COUNT, match_authors=False, verbose=VERBOSE_DEFAULT):
+    def fetch_articles(self, days_back=DEFAULT_DAYS_BACK, use_Substack_API=True, max_retries=MAX_RETRY_COUNT, match_authors=False, max_per_author=0, verbose=VERBOSE_DEFAULT):
         """Fetch recent articles from all newsletters"""
         print(f"\n📰 Fetching articles from past {days_back} days...")
 
@@ -237,21 +266,17 @@ class DigestGenerator:
 
         articles = []
         success_count = 0
+        entry_count=0
 
         for i, newsletter in enumerate(self.newsletters, 1):
             try:
-                # Added 2025-11-13 KJS - give Substack an extra breather to try to prevent 429 errors
-                # when processing large lists of newsletters
-                if (i % 100 == 0): 
-                    if verbose: print(f"(Waiting 5 extra sec to avoid overloading Substack)")
-                    time.sleep(5.0)
-
                 # Include author name if we are going to match on it
                 writer_name=newsletter['writer_name']     # KJS partial or full name of writer to match on
                 writer_handle=newsletter['writer_handle'] # KJS 2025-11-17 writer handle in Substack
-                author_text = f" ({writer_name})" if match_authors and len(writer_name)>0 else ''
+                handle_text = f" @{writer_handle}" if len(writer_handle)>0 else ""
+                author_text = f" ({writer_name}{handle_text})" if match_authors and len(writer_name)>0 else ''
 
-                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text} ({writer_handle})...", end='', flush=True)
+                print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text} ...", end='', flush=True)
 
                 # Fetch RSS feed; retry if it times out or is overloaded
                 headers = {'User-Agent': 'Mozilla/5.0 (compatible; DigestBot/1.0)'}
@@ -264,6 +289,7 @@ class DigestGenerator:
                 article_count = 0
 
                 for entry in feed.entries:
+
                     # Parse publication date
                     pub_date = None
                     if hasattr(entry, 'published_parsed') and entry.published_parsed:
@@ -286,12 +312,20 @@ class DigestGenerator:
                         # Only concern is if more than one named writer is on a newsletter, the first one will always
                         # be credited. Better than no one being credited??
                        authors.append(writer_name)
-                       if verbose: print(f"️ ⚠️ No author name found; defaulting to newsletter writer name {writer_name}")
+                       #if verbose: print(f"️ ⚠️ No author name found; defaulting to writer name {writer_name} for newsletter {newsletter['name']}")
 
-                    # KJS 2025-11-15 If the input CSV has an Author column, match on it
-                    #writer_name=newsletter['writer_name']
-                    if match_authors and len(writer_name)>0 and not writer_name in authors:
+                    # KJS 2025-11-15 If the input CSV has an Author column, match on it (allow partial matches)
+                    if match_authors and len(writer_name)>0 and not self._compare_author_name(authors, writer_name):
                         # This author is not the writer we want; skip it
+                        #if verbose: print(f" ⚠️ Looking in {newsletter['name']} for {writer_name}, found {authors}; skipping article")
+                        continue
+
+                    # KJS 2025-11-18 If we have a limit per newsletter/author, enforce it here. RSS file is always
+                    # in descending order by date, so that means we automatically keep the most recent article.
+                    if max_per_author and self._author_newsletter_count(newsletter['name'], authors, articles, verbose)>=max_per_author:
+                        #if verbose: print(f" ⚠️ Limit of {max_per_author} articles exceeded for {authors} in {newsletter['name']}; skipping article")
+                        # Keep looking in this newsletter if it's possible that we have multiple authors
+                        if match_authors: break;
                         continue
 
                     # Get content for word count (try content first, fallback to summary)
@@ -329,6 +363,15 @@ class DigestGenerator:
                         'restack_count': 0,
                         # no placeholders for raw_score and score in article yet
                     }
+
+                    # Added 2025-11-13 KJS - before we make API calls, give Substack an extra breather 
+                    # to try to minimize 429 errors when processing large lists of newsletters 
+                    # 2025-11-18: or using long lookback periods
+                    if ((i+entry_count) % 20 == 0): 
+                        #print(f"(Waiting 5 extra sec to avoid overloading Substack)")
+                        print("⏱",end='', flush=True)
+                        time.sleep(5.0)
+                    entry_count += 1
 
                     # Get engagement metrics from HTML, not Substack API
                     if use_Substack_API:
@@ -594,14 +637,16 @@ class DigestGenerator:
                       f"{article['comment_count']} comments"
                       f"{restack_text} | "
                       f"{article['word_count']} words | "
-                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})") # KJS Added actual date published
+                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})\n") # KJS Added actual date published
 
-    def generate_digest_html(self, featured_count=5, include_wildcards=0, days_back=7, scoring_method='daily_average', show_scores=True, verbose=VERBOSE_DEFAULT):
+    def generate_digest_html(self, featured_count, include_wildcards, days_back, scoring_method='daily_average', show_scores=True, verbose=VERBOSE_DEFAULT):
         """Generate Substack-ready HTML digest with clean formatting"""
         print(f"\n📝 Generating digest HTML...")
 
         # Select featured articles
-        featured = self.articles[:featured_count]
+        featured = []
+        if featured_count>0:
+            featured = self.articles[:featured_count]
 
         # Select wildcard (1 random from next 10)
         wildcards = []
@@ -940,9 +985,8 @@ class DigestGenerator:
         
         # Ignore len(self.articles)<1 and go ahead & make an empty file in the right format
         # Save the dataframe to the CSV file specified
+        articles_df = pd.DataFrame()
         try:
-            articles_df = pd.DataFrame()
-            
             # Rename and reformat columns, eg the list of authors, and make two links display-ready (markdown-compatible)            
             i=0
             for article in self.articles:
@@ -971,20 +1015,27 @@ class DigestGenerator:
                 articles_df.at[i,'Raw Score'] = article['raw_score']
                 articles_df.at[i,'Score']     = article['score']
                 i += 1
-
+        except Exception as e:        
+            print(f"\n❌ EXCEPTION while preparing data to write to CSV digest output file '{csv_digest_file}': \n{e}\n")
+            #if verbose: traceback.print_exc()
+            return (-1)
+            
+        # articles_df is ready to write out
+        try:
             # all done; save to file
             articles_df.to_csv(csv_digest_file, index=False)
 
         except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
             print(f"\n❌ ERROR: Writing to CSV digest output file '{csv_digest_file}' failed: \n{e}\n")
-            if verbose: traceback.print_exc()
+            #if verbose: traceback.print_exc()
             return (-1)
         except Exception as e:        
-            print(f"\n❌ ERROR: Exception while writing CSV digest output file '{csv_digest_file}': \n{e}\n")
-            if verbose: traceback.print_exc()
+            print(f"\n❌ EXCEPTION while writing CSV digest output file '{csv_digest_file}': \n{e}\n")
+            #if verbose: traceback.print_exc()
             return (-1)
        
-        print(f"\n💾 Digest article data saved to: {csv_digest_file}")
+        print(f"\n💾 Digest article data saved to: {csv_digest_file}. This file can be used")
+        print("   for further analysis or to regenerate HTML with setting --reuse_csv_data.")
         return len(self.articles)
         
     def save_digest_html(self, html, filename='digest_output.html', verbose=VERBOSE_DEFAULT):
@@ -1004,7 +1055,7 @@ class DigestGenerator:
 
         return len(self.articles)
 
-def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, csv_digest_file, reuse_csv_data=False):
+def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, csv_digest_file, reuse_csv_data=False):
     ''' Non-Interactive function for digest generation (so it can be scripted and scheduled) '''
 
     generator = DigestGenerator()
@@ -1030,7 +1081,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcards, use
         # Step 3: Fetch articles
         print("Step 3: Fetch Articles")
         print("-" * 70)
-        articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, verbose=verbose) # TO DO: Update to handle start date-end date
+        articles = generator.fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, max_per_author=max_per_author, verbose=verbose) # TO DO: Update to handle start date-end date
 
         if not articles:
             print("\n❌ No articles found! Try increasing the lookback period.")
@@ -1063,6 +1114,7 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcards, use
     html = generator.generate_digest_html(
         featured_count=featured_count,
         include_wildcards=include_wildcards,
+        days_back=days_back,
         scoring_method=scoring_method,
         show_scores=show_scores,
         verbose=verbose
@@ -1073,13 +1125,15 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcards, use
 
 def set_int_arg(arg_name, arg_value, default_value: int, min_value=None, max_value=None):    
     ''' do validity checks (int and within range) and set argument value '''
-    if not arg_value:
+    if arg_value is None:
         print(f"📧️ Defaulting {arg_name} value to {default_value}") # use ✅ instead?
         return default_value
     try:
         arg_num=int(arg_value)
     except ValueError:
-        print(f"⚠️ Warning: {arg_name} value {arg_value} not an integer; using default={default_value}")
+        if len(arg_value)>0:
+            print(f"⚠️ Warning: {arg_name} value {arg_value} not an integer")
+        print(f"📧️ Defaulting {arg_name} value to {default_value}") # use ✅ instead?
         return default_value
         
     if (min_value>=0 and arg_num<min_value):
@@ -1142,6 +1196,19 @@ def interactive_cli(reuse_csv_data=False, verbose=VERBOSE_DEFAULT):
 
     return csv_path, days_back, featured_count, include_wildcards, use_daily_average, show_scores, output_file
 
+def validate_output_file(filename, verbose=VERBOSE_DEFAULT):
+    ''' Before pulling data via API calls, pre-test whether output file can be written to '''
+    output_file = Path(filename)
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            if verbose: print(f"💾 Will use output file {output_file}")
+        return True
+
+    except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
+        print(f"\n❌ ERROR: Unable to initialize output file '{output_file}': \n{e}\n")
+        #if verbose: traceback.print_exc()
+        return False    
+
 def main():
     ''' main(): Handle interactive mode or scriptable runstring '''
     
@@ -1154,6 +1221,7 @@ def main():
     parser.add_argument("--featured_count",   help=f"How many articles to feature (default={DEFAULT_FEATURED_COUNT})", type=int, default=DEFAULT_FEATURED_COUNT)
     parser.add_argument("--interactive",      help="Use interactive prompting for inputs? (default='n')", default='n')
     parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)", default='y')
+    parser.add_argument("--max_articles_per_author", help=f"Maximum number of articles to include for each newsletter and author (default=no limit, most recent only=1)", type=int, default=0)
     parser.add_argument("--max_retries",      help=f"Number of times to retry API calls (default={DEFAULT_RETRY_COUNT})", type=int, default=DEFAULT_RETRY_COUNT)
     parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
     parser.add_argument("--output_file_html", help="Output HTML filename (e.g., default 'digest_output.html'; omit or use . for a default name)", default="")
@@ -1189,6 +1257,8 @@ def main():
         featured_count    = set_int_arg("Featured Count", args.featured_count, DEFAULT_FEATURED_COUNT, 0, MAX_FEATURED_COUNT)
         include_wildcards = set_int_arg("Wildcard Picks", args.wildcards,      DEFAULT_WILDCARD_PICKS, 0, MAX_WILDCARD_PICKS)
         max_retries       = set_int_arg("Max Retries",    args.max_retries,    DEFAULT_RETRY_COUNT,    0, MAX_RETRY_COUNT)
+        max_per_author    = set_int_arg("Max Articles Per Author", args.max_articles_per_author, 0, 0, 1000)
+        
         verbose           = (args.verbose[0].lower() != 'n')
         show_scores       = (args.show_scores[0].lower() != 'n')
         match_authors     = (args.match_authors[0].lower() == 'y')
@@ -1210,14 +1280,21 @@ def main():
         
         # Set default HTML output filename based on the CSV input name
         if not output_file or len(output_file) < 5:  # use a default name
-            output_file = csv_path.replace(".csv",f".digest_output.{run_time}.html")
+            output_file = csv_path.replace(".csv",f".digest.{run_time}.html")
         
         # Handle CSV filename defaults (updated KJS)
         if not csv_digest_file or len(csv_digest_file)<1:
             csv_digest_file = ''        # default is no CSV output file
         elif len(csv_digest_file) < 2:  # create a default name based on input file name
             #csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
-            csv_digest_file = csv_path.replace(".csv",f".digest_output.{run_time}.csv")
+            csv_digest_file = csv_path.replace(".csv",f".digest.{run_time}.csv")
+
+        # Make sure both output files can be written to
+        if not validate_output_file(output_file, verbose):
+            return -1
+
+        if len(csv_digest_file) > 0 and not validate_output_file(csv_digest_file, verbose):
+            return -1
 
         interactive=(args.interactive[0].lower() != 'n')
         if interactive:
@@ -1229,28 +1306,32 @@ def main():
 
         scoring_method = ('daily_average' if use_daily_average else 'standard')
         if verbose:
-            if not reuse_csv_data:
-                print(f"Fetching data via RSS for generating digest.")
-                print(f"  Days back: {days_back}")
-                print(f"  Match authors? {match_authors}")
+            if reuse_csv_data:
+                print(f"Will reuse article data from {csv_path} for generating digest.")
+            else:
+                print(f"Will fetch article data via RSS for generating digest.")
+                print(f"  List of newsletters: {csv_path}")
+                print(f"  Days to look back: {days_back}")
+                print(f"  Match author names against names in newsletter file? {match_authors}")
+                print(f"  Max articles per newsletter and author: {max_per_author if max_per_author>0 else 'No limit'}")
                 print(f"  Use Substack API for engagement metrics? {use_Substack_API}")
                 print(f"  Max retries on Substack RSS feed and API calls? {max_retries}")
                 print(f"  Scoring method? {scoring_method}")
                 print()
 
             # These parameters are for generating the HTML, so always show them
-            print(f"Digest formatting options")
+            print(f"Digest formatting options:")
             print(f"  Articles to Feature: {featured_count}")
             print(f"  Wildcard Articles: {include_wildcards}")
             print(f"  Show scores on non-featured? {show_scores}")
-            print(f"Output file HTML: {output_file}")
+            print(f"\nOutput file HTML: {output_file}")
             if len(csv_digest_file)>0: 
                 print(f"Output file CSV: {csv_digest_file}")
             print()
 
         
         result=automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average,
-            scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, output_file, 
+            scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, 
             csv_digest_file, reuse_csv_data)
 
         if result >= 0:
@@ -1271,20 +1352,6 @@ def main():
     
 RUN_UNIT_TESTS=False
 if __name__ == '__main__':
-
-    if RUN_UNIT_TESTS:
-        v1=set_int_arg("v1", "3",  2, 1, None)
-        if (v1 != 3): print(f"Unit test v1 failed {v1}")
-        v2=set_int_arg("v2", None, 2, 1, None)
-        if (v2 != 2): print(f"Unit test v2 failed {v2}")
-        v3=set_int_arg("v3", 3,    2, 1, None)
-        if (v3 != 3): print(f"Unit test v3 failed {v3}")
-        v4=set_int_arg("v4", 4,    2, 1, 5)
-        if (v4 != 4): print(f"Unit test v4 failed {v4}")
-        v5=set_int_arg("v5", 6,    2, 1, 5)
-        if (v5 != 2): print(f"Unit test v5 failed {v5}")
-        v6=set_int_arg("v6", "",   2, 1, 5)
-        if (v6 != 2): print(f"Unit test v6 failed {v6}")
 
     result = main()
     sys.exit(result)
