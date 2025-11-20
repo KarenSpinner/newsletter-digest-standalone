@@ -2,7 +2,6 @@
 cls
 echo Starting RUN_SWAI_DIGEST_REUSE_TEST.bat at %date% %time%
 
-cd c:\kj\myCode\GitHub\newsletter-digest-standalone
 if not exist logs mkdir logs
 call venv_activate.bat
 
@@ -35,4 +34,5 @@ dir outputs\%inputf%*.* /o-d
 dir logs\%dt%_my_newsletters_big.swai-digest-test.log
 
 call venv_deactivate.bat
+
 exit /b 0
