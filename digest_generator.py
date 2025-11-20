@@ -32,6 +32,7 @@ from pathlib import Path
 import re
 from bs4 import BeautifulSoup
 import pandas as pd
+import os
 
 # Added 2025-11-13 KJS
 import argparse
@@ -44,6 +45,7 @@ DEFAULT_DAYS_BACK=7;       MAX_DAYS_BACK=2000   # Use MAX_PER_AUTHOR=1 with MAX_
 DEFAULT_FEATURED_COUNT=5;  MAX_FEATURED_COUNT=20
 DEFAULT_WILDCARD_PICKS=1;  MAX_WILDCARD_PICKS=20
 DEFAULT_RETRY_COUNT=3;     MAX_RETRY_COUNT=10
+DEFAULT_PER_AUTHOR=0;      MAX_PER_AUTHOR=20  # each RSS file seems to max out at 20 articles regardless, and this limit is per newsletter-author combo
 VERBOSE_DEFAULT=False
 
 ''' Markdown link utilities '''
@@ -204,7 +206,7 @@ class DigestGenerator:
                 retry_count += 1            
                 if retry_count <= max_retries:
                     #if verbose: print(f"\nWaiting {delay} seconds before retry #{retry_count} ... ")
-                    print("⏱",end='', flush=True)                    
+                    print("⏱ ",end='', flush=True)                    
                     time.sleep(delay) 
                     delay *= 2.0  # double the delay for next time if this try fails
                 else:
@@ -369,7 +371,7 @@ class DigestGenerator:
                     # 2025-11-18: or using long lookback periods
                     if ((i+entry_count) % 20 == 0): 
                         #print(f"(Waiting 5 extra sec to avoid overloading Substack)")
-                        print("⏱",end='', flush=True)
+                        print("⏱ ",end='', flush=True)
                         time.sleep(5.0)
                     entry_count += 1
 
@@ -629,9 +631,8 @@ class DigestGenerator:
                 days_old = (now - article['published']).days  # use max (, 1) here?
                 print(f"   {i}. {article['title'][:75]}") # handle unicode chars in article titles
                 restack_text = f", {article['restack_count']} restacks" if article['restack_count']>0 else "" 
-                if verbose:
-                    author_text = ' & '.join(article['authors'])
-                    print(f"      In newsletter: {article['newsletter_name']} | by Author(s): {author_text}")
+                author_text = ' & '.join(article['authors'])
+                print(f"      In newsletter: {article['newsletter_name']} | by Author(s): {author_text}")
                 print(f"      Score: {article['score']:.1f} | "
                       f"{article['reaction_count']} likes, "
                       f"{article['comment_count']} comments"
@@ -1192,7 +1193,7 @@ def interactive_cli(reuse_csv_data=False, verbose=VERBOSE_DEFAULT):
     if not output_file:
         output_file = 'digest_output.html' # TO DO: Include datetimestamp as part of default output filename
         
-    # We do not currently prompt for CSV file name as output. Could add?
+    # We do not currently prompt for CSV article data filename in interactive mode. Could add?
 
     return csv_path, days_back, featured_count, include_wildcards, use_daily_average, show_scores, output_file
 
@@ -1209,6 +1210,12 @@ def validate_output_file(filename, verbose=VERBOSE_DEFAULT):
         #if verbose: traceback.print_exc()
         return False    
 
+def change_file_extension(base_filepath, new_extension):
+    ''' create new filename based on specified filename '''
+    base_name, _ = os.path.splitext(base_filepath)
+    new_file_path = base_name + "." + new_extension
+    return new_file_path
+
 def main():
     ''' main(): Handle interactive mode or scriptable runstring '''
     
@@ -1216,24 +1223,24 @@ def main():
     # Allow interactive mode to be an option.
     parser = argparse.ArgumentParser(description="Generate newsletter digest.")
     # Put these in alphabetical order to make it easier for users to understand the help text
-    parser.add_argument("--csv_path",         help="Path to CSV file with newsletter list or saved article data (default='my_newsletters.csv')", default="my_newsletters.csv")
-    parser.add_argument("--days_back",        help=f"How many days back to fetch articles (default={DEFAULT_DAYS_BACK})", type=int, default=DEFAULT_DAYS_BACK)
-    parser.add_argument("--featured_count",   help=f"How many articles to feature (default={DEFAULT_FEATURED_COUNT})", type=int, default=DEFAULT_FEATURED_COUNT)
-    parser.add_argument("--interactive",      help="Use interactive prompting for inputs? (default='n')", default='n')
-    parser.add_argument("--match_authors",    help="Use Author column in CSV file to filter articles (default='y'; no effect if no such column in the file, or cell is blank)", default='y')
-    parser.add_argument("--max_articles_per_author", help=f"Maximum number of articles to include for each newsletter and author (default=no limit, most recent only=1)", type=int, default=0)
-    parser.add_argument("--max_retries",      help=f"Number of times to retry API calls (default={DEFAULT_RETRY_COUNT})", type=int, default=DEFAULT_RETRY_COUNT)
-    parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'); default=none, use . for a default name", default="")
-    parser.add_argument("--output_file_html", help="Output HTML filename (e.g., default 'digest_output.html'; omit or use . for a default name)", default="")
-    parser.add_argument("--reuse_csv_data", help="Read article data from CSV Path instead of newslettere data; don't fetch data via RSS (default: n)", default="n")
-    parser.add_argument("--scoring_choice",   help="Scoring method: 1=Standard, 2=Daily Average (default=1)",default='1')
-    parser.add_argument("--show_scores",      help="Show scores outside the Featured and Wildcard sections? (default=y)",default='y')
-    parser.add_argument("--use_substack_api", help="Use Substack API to get engagement metrics? (default=n, get from RSS - faster but restack counts are not available)",default='n')
-    parser.add_argument("--verbose",  help="More detailed outputs while program is running? (default='n')", default='n')
-    parser.add_argument("--wildcards", help=f"Number of wildcard picks to include (default={DEFAULT_WILDCARD_PICKS})", type=int, default=DEFAULT_WILDCARD_PICKS)
+    parser.add_argument("--csv_path",         help="Path to CSV file with newsletter list (OR saved article data, with --reuse_CSV_data Y). Default='my_newsletters.csv'", default="my_newsletters.csv")
+    parser.add_argument("--days_back",        help=f"How many days back to fetch articles. Default={DEFAULT_DAYS_BACK}, min=1.", type=int, default=DEFAULT_DAYS_BACK)
+    parser.add_argument("--featured_count",   help=f"How many articles to feature. Default={DEFAULT_FEATURED_COUNT}, max={MAX_FEATURED_COUNT}.", type=int, default=DEFAULT_FEATURED_COUNT)
+    parser.add_argument("--interactive",      help="Use interactive prompting for inputs? Default=N.", default='N')
+    parser.add_argument("--match_authors",    help="Use Author column in CSV newsletter file to filter articles (partial matching)? Default=Y. Has no effect if no Author column in the file, or if cell is blank for a newsletter row.", default='Y')
+    parser.add_argument("--max_articles_per_author", help=f"Maximum number of articles to include for each newsletter and author combination. 0=no limit, 1=most recent only, 2-max={MAX_PER_AUTHOR} ok. Default={DEFAULT_PER_AUTHOR}.", type=int, default=DEFAULT_PER_AUTHOR)
+    parser.add_argument("--max_retries",      help=f"Number of times to retry failed API calls with increasing delays. Default={DEFAULT_RETRY_COUNT}. Retries will be logged as ⏱ .", type=int, default=DEFAULT_RETRY_COUNT)
+    parser.add_argument("--output_file_csv",  help="Output CSV filename for digest data (e.g., 'digest_output.csv'). Default=none. Use '.' for a default filename based on csv_path, timestamp, and settings.", default="")
+    parser.add_argument("--output_file_html", help="Output HTML filename (e.g., 'digest_output.html' in interactive mode). Omit or use '.' in runstring for a default name based on csv_path, timestamp, and settings.", default="")
+    parser.add_argument("--reuse_csv_data", help="Read article data from CSV Path instead of newsletter data. If Y, don't fetch article data via RSS or fetch new engagement metrics. Default=N.", default="N")
+    parser.add_argument("--scoring_choice",   help="Scoring method: 1=Standard, 2=Daily Average. Default=1.",default='1')
+    parser.add_argument("--show_scores",      help="Show scores on articles outside the Featured and Wildcard sections? Default=Y.",default='Y')
+    parser.add_argument("--use_substack_api", help="Use Substack API to get engagement metrics? Default=N, get from HTML (faster, but restack counts are not available)",default='N')
+    parser.add_argument("--verbose",  help="More detailed outputs while program is running? Default=N.", default='N')
+    parser.add_argument("--wildcards", help=f"Number of wildcard picks to include. Default={DEFAULT_WILDCARD_PICKS}, max={MAX_WILDCARD_PICKS}.", type=int, default=DEFAULT_WILDCARD_PICKS)
 
     print("=" * 70)
-    print("📧 Standalone Newsletter Digest Generator") # if you get an encoding error here, set PYTHONIOENCODING=utf_8
+    print("📧 Standalone Newsletter Digest Generator") # if you get an encoding error here, set PYTHONIOENCODING=utf_8 in your environment
     print("=" * 70)
     print()
 
@@ -1249,7 +1256,7 @@ def main():
         
         args = parser.parse_args()
  
-        # TO DO: Confirm that csv_path file exists; others ok to not exist (can use . for default name)
+        # Confirm that csv_path file exists; others ok to not exist (can use . for default name)
         csv_path          = args.csv_path.strip()
         output_file       = args.output_file_html.strip()
         csv_digest_file   = args.output_file_csv.strip()
@@ -1257,7 +1264,7 @@ def main():
         featured_count    = set_int_arg("Featured Count", args.featured_count, DEFAULT_FEATURED_COUNT, 0, MAX_FEATURED_COUNT)
         include_wildcards = set_int_arg("Wildcard Picks", args.wildcards,      DEFAULT_WILDCARD_PICKS, 0, MAX_WILDCARD_PICKS)
         max_retries       = set_int_arg("Max Retries",    args.max_retries,    DEFAULT_RETRY_COUNT,    0, MAX_RETRY_COUNT)
-        max_per_author    = set_int_arg("Max Articles Per Author", args.max_articles_per_author, 0, 0, 1000)
+        max_per_author    = set_int_arg("Max Articles Per Author", args.max_articles_per_author, DEFAULT_PER_AUTHOR, 0, MAX_PER_AUTHOR) 
         
         verbose           = (args.verbose[0].lower() != 'n')
         show_scores       = (args.show_scores[0].lower() != 'n')
@@ -1271,30 +1278,26 @@ def main():
         if len(csv_path)<5:
             print(f"❌ Cannot use {csv_path} as file path for newsletter CSV input or article data. Aborting.")
             return -1
-        if verbose:
-            if reuse_csv_data:
-                print(f"Reusing article data from {csv_path}")
-                print(f"Ignoring Days Back, Match Authors, Use Substack API, and Max Retries (not relevant)")
-            else:
-                print(f"Reading newsletter data from {csv_path}")
+
+        if reuse_csv_data:
+            print(f"Reusing article data from {csv_path}")
+            print(f"Ignoring Days Back, Match Authors, Use Substack API, Scoring Method, and Max Retries (not relevant)")
+        else:
+            print(f"Reading newsletter data from {csv_path}")
+
+        # Include days_back, scoring method, and max_per_author in default output filenames
+        default_extension = f"digest{days_back}d_s{2 if use_daily_average else 1}_m{max_per_author}.{run_time}"
         
         # Set default HTML output filename based on the CSV input name
-        if not output_file or len(output_file) < 5:  # use a default name
-            output_file = csv_path.replace(".csv",f".digest.{run_time}.html")
+        if not output_file or len(output_file) < 5:  
+            # use a default name with the feature & wildcard counts
+            output_file = change_file_extension(csv_path, default_extension+f".f{featured_count}_w{include_wildcards}.html")
         
         # Handle CSV filename defaults (updated KJS)
         if not csv_digest_file or len(csv_digest_file)<1:
             csv_digest_file = ''        # default is no CSV output file
-        elif len(csv_digest_file) < 2:  # create a default name based on input file name
-            #csv_digest_file = csv_path.replace('.csv','.digest_output.csv')
-            csv_digest_file = csv_path.replace(".csv",f".digest.{run_time}.csv")
-
-        # Make sure both output files can be written to
-        if not validate_output_file(output_file, verbose):
-            return -1
-
-        if len(csv_digest_file) > 0 and not validate_output_file(csv_digest_file, verbose):
-            return -1
+        elif len(csv_digest_file)==1 and csv_digest_file[0]=='.':  # create a default name based on input file name
+            csv_digest_file = change_file_extension(csv_path, default_extension+".csv")
 
         interactive=(args.interactive[0].lower() != 'n')
         if interactive:
@@ -1304,35 +1307,43 @@ def main():
         else:
             print("\nRunning digest generator with defaults and settings from runstring.\n(Use --interactive to be prompted.)\n")
 
+        # Make sure both output files can be written to
+        if len(output_file) > 0 and not validate_output_file(output_file, verbose):
+            return -1
+
+        if len(csv_digest_file) > 0 and not validate_output_file(csv_digest_file, verbose):
+            return -1
+
         scoring_method = ('daily_average' if use_daily_average else 'standard')
-        if verbose:
-            if reuse_csv_data:
-                print(f"Will reuse article data from {csv_path} for generating digest.")
-            else:
-                print(f"Will fetch article data via RSS for generating digest.")
+        if reuse_csv_data:
+            print(f"Will reuse article data from {csv_path} for generating digest HTML.")
+        else:
+            if not interactive:
+                print(f"Will fetch article data via RSS for generating digest HTML.")
                 print(f"  List of newsletters: {csv_path}")
                 print(f"  Days to look back: {days_back}")
-                print(f"  Match author names against names in newsletter file? {match_authors}")
-                print(f"  Max articles per newsletter and author: {max_per_author if max_per_author>0 else 'No limit'}")
-                print(f"  Use Substack API for engagement metrics? {use_Substack_API}")
-                print(f"  Max retries on Substack RSS feed and API calls? {max_retries}")
                 print(f"  Scoring method? {scoring_method}")
-                print()
-
-            # These parameters are for generating the HTML, so always show them
-            print(f"Digest formatting options:")
-            print(f"  Articles to Feature: {featured_count}")
-            print(f"  Wildcard Articles: {include_wildcards}")
-            print(f"  Show scores on non-featured? {show_scores}")
-            print(f"\nOutput file HTML: {output_file}")
-            if len(csv_digest_file)>0: 
-                print(f"Output file CSV: {csv_digest_file}")
+            # These are not currently prompted for, so show the values we're going to use
+            print(f"  Match author names against names in newsletter file? {match_authors}")
+            print(f"  Max articles per newsletter and author: {max_per_author if max_per_author>0 else 'No limit'}")
+            print(f"  Use Substack API for engagement metrics? {use_Substack_API}")
+            print(f"  Max retries on Substack RSS feed and API calls? {max_retries}")
             print()
+
+        # These parameters are for generating the HTML, so always show them
+        print(f"Digest formatting options:")
+        print(f"  Featured Articles: Top {featured_count} based on score")
+        print(f"  Wildcard Articles: {include_wildcards}")
+        print(f"  Show scores on non-featured articles? {show_scores}")
+        print(f"\nOutput file HTML: {output_file}")
+        if len(csv_digest_file)>0: 
+            print(f"Output file CSV: {csv_digest_file}")
+        print()
 
         
         result=automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average,
-            scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, 
-            csv_digest_file, reuse_csv_data)
+                scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors,
+                max_per_author, output_file, csv_digest_file, reuse_csv_data)
 
         if result >= 0:
             print("\n" + "=" * 70)
@@ -1350,7 +1361,6 @@ def main():
         traceback.print_exc()
         return -1
     
-RUN_UNIT_TESTS=False
 if __name__ == '__main__':
 
     result = main()
