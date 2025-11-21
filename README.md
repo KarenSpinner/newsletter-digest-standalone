@@ -78,6 +78,7 @@ usage: digest_generator.py [-h] [--csv_path CSV_PATH]
                            [--reuse_csv_data REUSE_CSV_DATA]
                            [--scoring_choice SCORING_CHOICE]
                            [--show_scores SHOW_SCORES]
+                           [--temp_folder TEMP_FOLDER]
                            [--use_substack_api USE_SUBSTACK_API]
                            [--verbose VERBOSE] 
 						   [--wildcards WILDCARDS]
@@ -129,6 +130,9 @@ options:
   --show_scores SHOW_SCORES
                         Show scores on articles outside the Featured and
                         Wildcard sections? Default=Y.
+  --temp_folder TEMP_FOLDER
+                        Subfolder for saving temporary files (results of API
+                        calls), e.g. 'temp'. Default='' (no temp files saved)
   --use_substack_api USE_SUBSTACK_API
                         Use Substack API to get engagement metrics? Default=N,
                         get from HTML (faster, but restack counts are not
@@ -425,6 +429,21 @@ Note that Substack will igmore these settings when you paste the digest into the
 - **Wildcard count**: Set via CLI prompt or runstring
 - **Articles per category**: No limit
 - **Articles per newsletter+author**: Default is no limit. Can set a limit in the runstring. Substack RSS limits seem to be 20 articles max.
+
+### Known Limitations
+
+- ** Restack Counts**: Restack counts are currently only available if the Substack API is used for engagement metrics. This is controlled by a runstring argument (no prompting). 
+
+Future: Try to get restack counts from the HTML files, e.g. in <script>window._preloads = JSON.parse{...}, look for 		\"restacks\":<#>,\"reactions\":{\"\u2764\":<#>}
+
+- **Author Listing**: At present, only the lead author name is in the RSS file. When there are multiple authors, Substack appears to choose the name which occurs first alphabetically.
+-- Secondary or additional authors' names are not shown in the digest.  
+-- If an Author name is specified in a column of the Newsletter file, and a named Author has a byline on the article but is not the first author name that Substack chooses as 'the' lead author, then that Author will not be matched to the article. 
+
+A future workaround is to enhance the program to look inside the HTML of the article for additional author names. (Perhaps in 'entry' in <div id="main"  ... under <script type="application/ld+json">
+		{"@context": ... "author":[{"@type":"Person","name":"A<the author name we want>", "url":"https://substack.com/@<author_handle>",}]}
+Or in <script>window._preloads = JSON.parse{...}, look for 'name' and 'handle' in 'contributors'. 
+Fetching the HTML file to look for author names will make execution a bit slower if the Substack API is being used for metrics instead of HTML. However, if restack counts can be obtained from the HTML, then the Substack API will not be needed and that API call can be dropped.
 
 ## Support
 
