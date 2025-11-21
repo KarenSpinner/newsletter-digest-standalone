@@ -1254,11 +1254,12 @@ def validate_output_file(filename, verbose=VERBOSE_DEFAULT):
         #if verbose: traceback.print_exc()
         return False    
 
-INVALID_CHARS = r'[:*?"<>|]'  # exclude \ and / since we will treat it as a path & subfolders are ok
+INVALID_FOLDER_CHARS = r'[:*?"<>|]'  # exclude \ and / for folder, since we will treat it as a path & subfolders are ok
+INVALID_FILE_CHARS = r'[\\/:*?"<>|]' # replace these in the filename
 
 def make_valid_filename (filename):
     ''' change an article title which might have invalid characters in it to a suitable filename '''
-    sanitized = re.sub(INVALID_CHARS, "_", filename.strip())
+    sanitized = re.sub(INVALID_FILE_CHARS, "_", filename.strip())
     return sanitized
 
 def validate_output_folder(folder_name, base_path=".", verbose=VERBOSE_DEFAULT) -> str:
@@ -1266,7 +1267,7 @@ def validate_output_folder(folder_name, base_path=".", verbose=VERBOSE_DEFAULT) 
     ''' Create a subfolder under current base_path if valid and not existing. (OK if it exists) '''
     output_folder = Path(folder_name)
 
-    if re.search(INVALID_CHARS, folder_name): 
+    if re.search(INVALID_FOLDER_CHARS, folder_name): 
         if verbose: print(f"Invalid folder name: {folder_name}")
         return None
 

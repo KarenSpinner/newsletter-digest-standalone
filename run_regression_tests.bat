@@ -30,7 +30,7 @@ echo 2) Repeat with Substack API calls for metrics (default HTML file only, no a
 copy my_newsletters.csv tests\%dt%\my_newsletters.test2.csv
 python digest_generator.py --use_substack_api Y --temp_folder temp\%dt% --csv_path tests\%dt%\my_newsletters.test2.csv >tests\%dt%\my_newsletters.test2.digest_substack_metrics.log
 
-REM Use default output naming on test3, specify names on test4
+REM Use default output naming on test3, specify filenames on test4
 echo 3) Run with my 3 newsletters only, 2000 days with standard scoring, 0 featured, 20 wildcards. Save article data to CSV and save HTMLs to temp.
 copy inputs\kjs_newsletters.csv       tests\%dt%\kjs_newsletters.test3.csv
 python digest_generator.py --csv_path tests\%dt%\kjs_newsletters.test3.csv --output_file_csv . --days_back 2000 --featured_count 0 --wildcards 20 --scoring_choice 1 --verbose Y --temp_folder temp\%dt%  >tests\%dt%\kjs_newsletters.test3.digest2000d_s1_f0_w20.log
