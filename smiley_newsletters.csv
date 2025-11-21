@@ -1,0 +1,18 @@
+Newsletter Name,Website URL,Category,Author,Author Profile,Comment
+Privacat Insights,https://insights.priva.cat/,AI & Machine Learning,Carey Lening,Carey Lening,tests external site with fewer posts
+Exponential View (Azeem Azhar),https://www.exponentialview.co/,AI & Machine Learning,Chantal Smith,Chantal Smith,tests filtering on author name (exclude posts by Azeem Azhar)
+Code Like A Girl,https://codelikeagirl.substack.com,Software,,Dinah,tests non-matching on author name and multiple co-authors
+Everyday Ethical AI, https://karensmiley.substack.com,AI & Machine Learning,,Karen Smiley,Tests non-matching on author name
+6 'P's in AI Pods, https://sixpeas.substack.com, AI & Machine Learning,Karen Smiley,Karen Smiley,this and next test multiple author names for newsletter
+6 'P's in AI Pods, https://sixpeas.substack.com, AI & Machine Learning,Lakshmi Veeramani,Lakshmi Veeramani,
+Women Writin' 'Bout AI,https://womenwritinboutai.substack.com,AI & Machine Learning,Women Writin' 'Bout AI,Kimberly Becker,this and next test duplicate author names for newsletter
+Women Writin' 'Bout AI,https://womenwritinboutai.substack.com,AI & Machine Learning,Women Writin' 'Bout AI,Jessica Parker,as well as case-sensitivity for the Author name
+The Scenarionist,https://www.thescenarionist.com,Science & Research,"Giulia Spano, PhD","Giulia Spano, PhD",
+@Jasmine,https://jasmi.news,AI & Machine Learning,Jasmine Sun,Jasmine Sun,tests non-ASCII char in newsletter name; usually high-scoring
+Sarah Seeking Ikigai,https://www.seekingikigai.online,AI & Machine Learning,Sarah Seeking Ikigai,Sarah Seeking Ikigai,
+Ann Smarty's Search & #AI Digest,https://www.annsmarty.com,AI & Machine Learning,Ann Smarty,Ann Smarty,
+AI for Families,https://www.aiforfamilies.com,AI & Machine Learning,Shannon Edwards,Shannon Edwards,
+Decoding Discontinuity,https://www.decodingdiscontinuity.com,AI & Machine Learning,Raphaëlle d'Ornano,Raphaëlle d'Ornano,tests unicode in person name
+TechSips with Nadina: The Newsletter,https://techsips.nadinalisbon.com,Technology,Nadina Dorene Lisbon,Nadina Dorene Lisbon,tests partial match on person name
+Gray Matters,https://maggiegray.us,AI & Machine Learning,Maggie Gray,Maggie Gray,
+Eleanor on Everything,https://everything.intellectronica.net,AI & Machine Learning,Eleanor Berger,Eleanor Berger,
