@@ -1,4 +1,4 @@
-# Standalone Newsletter Digest Generator
+# Standalone Newsletter Digest Generator V1.0.1
 
 A simple, self-contained digest generator that runs locally with **no authentication** and **no paid API calls**.
 
@@ -63,93 +63,100 @@ That's it! You're ready to go.
 ```bash
 **python digest_generator.py --help** - show runstring commands
 **python digest_generator.py** - all default configuration options are used
-**python digest_generator.py --interactive Y** - prompt for main configuration options
+**python digest_generator.py --interactive** - prompt for main configuration options (other options can be set in the runstring)
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
-usage: digest_generator.py [-h] [--csv_path CSV_PATH] 
-                           [--days_back DAYS_BACK]
-                           [--featured_count FEATURED_COUNT]
-                           [--interactive INTERACTIVE]
-                           [--match_authors MATCH_AUTHORS]
-                           [--max_articles_per_author MAX_ARTICLES_PER_AUTHOR]
-                           [--max_retries MAX_RETRIES]
-                           [--output_file_csv OUTPUT_FILE_CSV]
-                           [--output_file_html OUTPUT_FILE_HTML]
-                           [--reuse_csv_data REUSE_CSV_DATA]
-                           [--scoring_choice SCORING_CHOICE]
-                           [--show_scores SHOW_SCORES]
-                           [--temp_folder TEMP_FOLDER]
-                           [--use_substack_api USE_SUBSTACK_API]
-                           [--verbose VERBOSE] 
-						   [--wildcards WILDCARDS]
+usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
+                           [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-nm]
+                           [-nn] [-oc OUTPUT_FILE_CSV] [-oh OUTPUT_FILE_HTML]
+                           [-ra] [-r RETRIES] [-s {1,2}] [-t TEMP_FOLDER] [-u]
+                           [-v] [-w WILDCARDS]
 
 Generate newsletter digest.
 
-options:
+options: (keywords must be in lower case as shown)
   -h, --help            show this help message and exit
-  --csv_path CSV_PATH   Path to CSV file with newsletter list (OR saved
-                        article data, with --reuse_CSV_data Y).
-                        Default='my_newsletters.csv'
-  --days_back DAYS_BACK
-                        How many days back to fetch articles. Default=7,
-                        min=1.
-  --featured_count FEATURED_COUNT
-                        How many articles to feature. Default=5, max=20.
-  --interactive INTERACTIVE
-                        Use interactive prompting for inputs? Default=N.
-  --match_authors MATCH_AUTHORS
-                        Use Author column in CSV newsletter file to filter
-                        articles (partial matching)? Default=Y. Has no effect
-                        if no Author column in the file, or if cell is blank
-                        for a newsletter row.
-  --max_articles_per_author MAX_ARTICLES_PER_AUTHOR
+  -i, --interactive     Use interactive prompting for inputs.
+  -a ARTICLES_PER_AUTHOR, --articles_per_author ARTICLES_PER_AUTHOR
                         Maximum number of articles to include for each
                         newsletter and author combination. 0=no limit, 1=most
-                        recent only, 2-max=20 ok. Default=0.
-  --max_retries MAX_RETRIES
-                        Number of times to retry failed API calls with
-                        increasing delays. Default=3. Retries will be logged
-                        as ⏱ .
-  --output_file_csv OUTPUT_FILE_CSV
-                        Output CSV filename for digest data (e.g.,
+                        recent only, 2-max=20 ok. (Substack RSS file max is
+                        20.) Default=0.
+  -c CSV_PATH, --csv_path CSV_PATH
+                        Path to CSV file with newsletter list (OR saved
+                        article data, with --reuse_CSV_data Y).
+                        Default='my_newsletters.csv'
+  -d DAYS_BACK, --days_back DAYS_BACK
+                        How many days back to fetch articles. Default=7,
+                        min=1.
+  -f FEATURED_COUNT, --featured_count FEATURED_COUNT
+                        How many articles to feature. Default=5, min=0 (none),
+                        max=20.
+  -hs, --hide_scores    Hide scores on articles outside the Featured and
+                        Wildcard sections
+  -nm, --no_name_match  Do not use Author column in CSV newsletter file to
+                        filter articles (partial matching). Matching is on by
+                        default if Author column is in the newsletter file. It
+                        has no effect if the cell is blank for a newsletter
+                        row.
+  -nn, --no_normalization
+                        Suppress normalization of final scores to 1-100 range.
+                        (Raw scores over 100 are still capped at final
+                        score=100 regardless.)
+  -oc OUTPUT_FILE_CSV, --output_file_csv OUTPUT_FILE_CSV
+                        Output CSV filename for digest article data (e.g.,
                         'digest_output.csv'). Default=none. Use '.' for a
                         default filename based on csv_path, timestamp, and
                         settings.
-  --output_file_html OUTPUT_FILE_HTML
+  -oh OUTPUT_FILE_HTML, --output_file_html OUTPUT_FILE_HTML
                         Output HTML filename (e.g., 'digest_output.html' in
                         interactive mode). Omit or use '.' in runstring for a
                         default name based on csv_path, timestamp, and
                         settings.
-  --reuse_csv_data REUSE_CSV_DATA
+  -ra, --reuse_article_data
                         Read article data from CSV Path instead of newsletter
-                        data. If Y, don't fetch article data via RSS or fetch
-                        new engagement metrics. Default=N.
-  --scoring_choice SCORING_CHOICE
+                        data.
+  -r RETRIES, --retries RETRIES
+                        Number of times to retry failed API calls with
+                        increasing delays. Default=3. Retries will be logged
+                        as ⏱ .
+  -s {1,2}, --scoring_choice {1,2}
                         Scoring method: 1=Standard, 2=Daily Average.
                         Default=1.
-  --show_scores SHOW_SCORES
-                        Show scores on articles outside the Featured and
-                        Wildcard sections? Default=Y.
-  --temp_folder TEMP_FOLDER
-                        Subfolder for saving temporary files (results of API
-                        calls), e.g. 'temp'. Default='' (no temp files saved)
-  --use_substack_api USE_SUBSTACK_API
-                        Use Substack API to get engagement metrics? Default=N,
-                        get from HTML (faster, but restack counts are not
-                        available)
-  --verbose VERBOSE     More detailed outputs while program is running?
-                        Default=N.
-  --wildcards WILDCARDS
-                        Number of wildcard picks to include. Default=1,
-                        max=20.
+  -t TEMP_FOLDER, --temp_folder TEMP_FOLDER
+                        Subfolder for saving temporary HTML and JSON files
+                        (results of API calls), e.g. 'temp'. Default='' (no
+                        temp files saved)
+  -u, --use_substack_api
+                        Use Substack API to get engagement metrics. (Default
+                        is to get metrics from HTML (faster, but restack
+                        counts are not available)
+  -v, --verbose         More detailed outputs while program is running.
+  -w WILDCARDS, --wildcards WILDCARDS
+                        Number of wildcard picks to include. Default=1, min=0
+                        (none), max=20.
 
 ```
-To test different format or scoring settings without having to wait to re-fetch articles,
-run the program once using runstring option:
-  `--output_file_csv=(article_data_filename)`
-Then when you run the program again for testing, specify in the runstring: 
-  `--reuse_csv_file Y --csv_path=(article_data_filename)`
-This allows very fast iteration, even with no network connection, and repeatable tests.
+**Tip for developers working on this tool** 
+
+If you are working on enhancements to digest formatting, here's a way to speed up your testing.
+Run the program once using runstring option:
+  `--output_file_csv (article_data_filename)`
+This will save the artice data to a CSV file. Then when you are ready to run the program again to test formatting changes, specify in the runstring: 
+  `--reuse_article_data --csv_path (article_data_filename)`
+The program will load the article data from CSV and then execute the formatting and output steps
+with no time required for making any API calls.
+This allows very fast iteration, even with no network connection. And it makes tests repeatable.
+
+**Using the digest tool for periodic backups of your own newsletter**
+
+- Create a my_backup.csv file which has links to your own newsletter (or newsletters, if you have more than one).
+- Run the digest tool with a long lookback period (enough to cover your last 20 articles) and with the temp_folder option.
+  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv
+- The tool will generate a digest page and save a HTML copy of each of your articles in the backup_files folder
+- You can also save a CSV file of your article data with the links and metrics by including the -oc option.
+  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv -oc backup_files\my_article_data.csv
+
 
 ### Interactive prompts:
 
