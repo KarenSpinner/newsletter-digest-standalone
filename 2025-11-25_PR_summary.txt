@@ -1,0 +1,21 @@
+2025-11-24 pull request updates
+
+Version 1.0.2 updates
+- Now finds and lists multiple authors of collaborative articles when Substack API is used!
+- Fixed a bug where the hyperlink to the newsletter name was not being added correctly to the Featured articles on the HTML page.
+- Add -ts runstring option to include timestamp in default HTML and CSV filenames (default: no timestamp in names).
+- Add -o runstring option to specify a default output folder to use for HTML and CSV (instead of defaulting to the input file's folder if -oh or -oc options were defaulted).
+- Add -xma runstring option to expand articles with multiple authors (who are named in the newsletter CSV file) to multiple rows of the output CSV file.
+- Can take a Publisher name column from the input file. If present, it will be used as the default Writer of an article that has no byline, which would otherwise be Unknown.
+- Articles with no byline and no Publisher are now saved with a default author name that includes the newsletter name (e.g. "Unknown at The Scenarionist"). This helps to ensure uniqueness, e.g. when eliminating from the wildcard pool authors who already have a featured article, and for saving HTML or JSON files to the TEMP_FOLDER.
+- Ensure the same article doesn't appear twice in the wildcard picks.
+- Exclude articles by all authors of an already-picked wildcard from the wildcard pool.
+- Exclude articles by all authors of featured articles from wildcard pool.
+- Centralized all tunable hard-coded configuration options at top of source file.
+- Summarize scoring weights in the help text for the scoring method.
+
+Known limitations:
+- Python sorting of the output CSV file is not quite the same as sort order expected by Excel or Google Sheets. This is most noticeable with author names, e.g. handling of special characters and lower case. If you want to use lookup formulas (which depend on alphabetical sorting) on author names in those tools, you may need to re-sort the data yourself.
+- Some versions of Excel do not handle Unicode characters properly. To use the output article CSV in a Google Sheet without the unicode names being mangled, do not open the CSV in Excel and copy-paste into Google Sheets. Instead, use Google Sheets to import the CSV into a workbook tab.
+- When the --aa option to limit articles per author is used, it's still possible to end up with more than the chosen number of row in the file for some authors. This happens with articles that have multiple authors, or authors who post guest articles in other newsletters listed in the input file. Rather than omit the secondary authors, both articles are included for now. This will be more noticeable if the -xma option is used to add a row for each co-author. The file will have the most recent author for each named author at the top of their articles, so if you only want the latest one for that author, an 'exact' LOOKUP will fetch it.
+- The -xma option will only work at present if -u (use substack API) is also configured. Names of co-authors are not currently available unless the Substack API is used. This limitation may be removed in the future if it's a concern (let us know).

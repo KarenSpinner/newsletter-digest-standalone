@@ -1,4 +1,4 @@
-# Standalone Newsletter Digest Generator
+# Standalone Newsletter Digest Generator V1.0.1
 
 A simple, self-contained digest generator that runs locally with **no authentication** and **no paid API calls**.
 
@@ -63,93 +63,114 @@ That's it! You're ready to go.
 ```bash
 **python digest_generator.py --help** - show runstring commands
 **python digest_generator.py** - all default configuration options are used
-**python digest_generator.py --interactive Y** - prompt for main configuration options
+**python digest_generator.py --interactive** - prompt for main configuration options (other options can be set in the runstring)
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
-usage: digest_generator.py [-h] [--csv_path CSV_PATH] 
-                           [--days_back DAYS_BACK]
-                           [--featured_count FEATURED_COUNT]
-                           [--interactive INTERACTIVE]
-                           [--match_authors MATCH_AUTHORS]
-                           [--max_articles_per_author MAX_ARTICLES_PER_AUTHOR]
-                           [--max_retries MAX_RETRIES]
-                           [--output_file_csv OUTPUT_FILE_CSV]
-                           [--output_file_html OUTPUT_FILE_HTML]
-                           [--reuse_csv_data REUSE_CSV_DATA]
-                           [--scoring_choice SCORING_CHOICE]
-                           [--show_scores SHOW_SCORES]
-                           [--temp_folder TEMP_FOLDER]
-                           [--use_substack_api USE_SUBSTACK_API]
-                           [--verbose VERBOSE] 
-						   [--wildcards WILDCARDS]
+usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
+                           [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-nm]
+                           [-nn] [-o OUTPUT_FOLDER] [-oc OUTPUT_FILE_CSV]
+                           [-oh OUTPUT_FILE_HTML] [-ra] [-rt RETRIES]
+                           [-s {1,2}] [-t TEMP_FOLDER] [-ts] [-u] [-v]
+                           [-w WILDCARDS] [-xma]
 
 Generate newsletter digest.
 
-options:
+options: (keywords must be in lower case as shown)
   -h, --help            show this help message and exit
-  --csv_path CSV_PATH   Path to CSV file with newsletter list (OR saved
-                        article data, with --reuse_CSV_data Y).
-                        Default='my_newsletters.csv'
-  --days_back DAYS_BACK
-                        How many days back to fetch articles. Default=7,
-                        min=1.
-  --featured_count FEATURED_COUNT
-                        How many articles to feature. Default=5, max=20.
-  --interactive INTERACTIVE
-                        Use interactive prompting for inputs? Default=N.
-  --match_authors MATCH_AUTHORS
-                        Use Author column in CSV newsletter file to filter
-                        articles (partial matching)? Default=Y. Has no effect
-                        if no Author column in the file, or if cell is blank
-                        for a newsletter row.
-  --max_articles_per_author MAX_ARTICLES_PER_AUTHOR
+  -i, --interactive     Use interactive prompting for inputs.
+  -a ARTICLES_PER_AUTHOR, --articles_per_author ARTICLES_PER_AUTHOR
                         Maximum number of articles to include for each
                         newsletter and author combination. 0=no limit, 1=most
-                        recent only, 2-max=20 ok. Default=0.
-  --max_retries MAX_RETRIES
+                        recent only, 2-max=20 ok. (Substack RSS file max is
+                        20.) Default=0.
+  -c CSV_PATH, --csv_path CSV_PATH
+                        Path to CSV file with newsletter list (OR saved
+                        article data, with --reuse_CSV_data Y).
+                        Default='my_newsletters.csv'
+  -d DAYS_BACK, --days_back DAYS_BACK
+                        How many days back to fetch articles. Default=7,
+                        min=1.
+  -f FEATURED_COUNT, --featured_count FEATURED_COUNT
+                        How many articles to feature. Default=5, min=0 (none),
+                        max=20.
+  -hs, --hide_scores    Hide scores on articles outside the Featured and
+                        Wildcard sections
+  -nm, --no_name_match  Do not use Author column in CSV newsletter file to
+                        filter articles (partial matching). Matching is on by
+                        default if Author column is in the newsletter file. It
+                        has no effect if the cell is blank for a newsletter
+                        row.
+  -nn, --no_normalization
+                        Suppress normalization of final scores to 1-100 range.
+                        (Raw scores over 100.0 are still capped at final
+                        score=100.0 regardless.)
+  -o OUTPUT_FOLDER, --output_folder OUTPUT_FOLDER
+                        Subfolder for saving default OUTPUT_FILE_CSV and
+                        OUTPUT_FILE_HTML. Will be created if it does not
+                        exist. Default: folder location of CSV_PATH.
+  -oc OUTPUT_FILE_CSV, --output_file_csv OUTPUT_FILE_CSV
+                        Output CSV filename for digest article data (e.g.,
+                        'digest_articles.csv'). Default=none. Use '.' for a
+                        default filename based on OUTPUT_FOLDER, CSV_PATH
+                        filename, settings, and timestamp (if enabled).
+  -oh OUTPUT_FILE_HTML, --output_file_html OUTPUT_FILE_HTML
+                        Output HTML filename (e.g., 'digest_output.html' in
+                        interactive mode). Omit or use '.' in runstring for a
+                        default name based on OUTPUT_FOLDER, CSV_PATH
+                        filename, settings, and timestamp (if enabled).
+  -ra, --reuse_article_data
+                        Read article data from CSV Path instead of newsletter
+                        data.
+  -rt RETRIES, --retries RETRIES
                         Number of times to retry failed API calls with
                         increasing delays. Default=3. Retries will be logged
                         as ⏱ .
-  --output_file_csv OUTPUT_FILE_CSV
-                        Output CSV filename for digest data (e.g.,
-                        'digest_output.csv'). Default=none. Use '.' for a
-                        default filename based on csv_path, timestamp, and
-                        settings.
-  --output_file_html OUTPUT_FILE_HTML
-                        Output HTML filename (e.g., 'digest_output.html' in
-                        interactive mode). Omit or use '.' in runstring for a
-                        default name based on csv_path, timestamp, and
-                        settings.
-  --reuse_csv_data REUSE_CSV_DATA
-                        Read article data from CSV Path instead of newsletter
-                        data. If Y, don't fetch article data via RSS or fetch
-                        new engagement metrics. Default=N.
-  --scoring_choice SCORING_CHOICE
+  -s {1,2}, --scoring_choice {1,2}
                         Scoring method: 1=Standard, 2=Daily Average.
-                        Default=1.
-  --show_scores SHOW_SCORES
-                        Show scores on articles outside the Featured and
-                        Wildcard sections? Default=Y.
-  --temp_folder TEMP_FOLDER
-                        Subfolder for saving temporary files (results of API
-                        calls), e.g. 'temp'. Default='' (no temp files saved)
-  --use_substack_api USE_SUBSTACK_API
-                        Use Substack API to get engagement metrics? Default=N,
-                        get from HTML (faster, but restack counts are not
-                        available)
-  --verbose VERBOSE     More detailed outputs while program is running?
-                        Default=N.
-  --wildcards WILDCARDS
-                        Number of wildcard picks to include. Default=1,
-                        max=20.
+                        Default=1. Weights: Likes=1, Comments=2, Restacks=3,
+                        Length=0.05 per 100 words.
+  -t TEMP_FOLDER, --temp_folder TEMP_FOLDER
+                        Subfolder for saving temporary HTML and JSON files
+                        (results of API calls), e.g. 'temp'. Default='' (no
+                        temp files saved)
+  -ts, --timestamp      Add datetimestamp to the default output file names.
+  -u, --use_substack_api
+                        Use Substack API to get engagement metrics. (Default
+                        is to get metrics from HTML (faster, but restack
+                        counts are not available)
+  -v, --verbose         More detailed outputs while program is running.
+  -w WILDCARDS, --wildcards WILDCARDS
+                        Number of wildcard picks to include. Default=1, min=0
+                        (none), max=20.
+  -xma, --expand_multiple_authors
+                        When an article has multiple authors, expand the
+                        article to multiple rows of the digest article CSV
+                        (output) file for all authors included in the
+                        newsletter input file. Note that multiple authors are
+                        currently only detected when using the Substack API
+                        (-u option).
 
 ```
-To test different format or scoring settings without having to wait to re-fetch articles,
-run the program once using runstring option:
-  `--output_file_csv=(article_data_filename)`
-Then when you run the program again for testing, specify in the runstring: 
-  `--reuse_csv_file Y --csv_path=(article_data_filename)`
-This allows very fast iteration, even with no network connection, and repeatable tests.
+**Tip for developers working on this tool** 
+
+If you are working on enhancements to digest formatting, here's a way to speed up your testing.
+Run the program once using runstring option:
+  `--output_file_csv (article_data_filename)`
+This will save the artice data to a CSV file. Then when you are ready to run the program again to test formatting changes, specify in the runstring: 
+  `--reuse_article_data --csv_path (article_data_filename)`
+The program will load the article data from CSV and then execute the formatting and output steps
+with no time required for making any API calls.
+This allows very fast iteration, even with no network connection. And it makes tests repeatable.
+
+**Using the digest tool for periodic backups of your own newsletter**
+
+- Create a my_backup.csv file which has links to your own newsletter (or newsletters, if you have more than one).
+- Run the digest tool with a long lookback period (enough to cover your last 20 articles) and with the temp_folder option.
+  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv
+- The tool will generate a digest page and save a HTML copy of each of your articles in the backup_files folder
+- You can also save a CSV file of your article data with the links and metrics by including the -oc option.
+  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv -oc backup_files\my_article_data.csv
+
 
 ### Interactive prompts:
 
@@ -264,10 +285,10 @@ Top-scored articles with:
 - Article summary
 
 ### 🎲 Wildcard Picks (optional)
-Same content as Featured Articles. One or more random articles from the next 10 highest-scored articles - helps surface hidden gems!
+Same content as Featured Articles. One or more random articles from the next 10 highest-scored articles - helps surface hidden gems from authors not included in the Featured section!
 
 ### 📂 Categorized Sections
-Remaining articles grouped by category, using categories in the newsletter CSV file:
+Remaining articles grouped by category, using categories in the newsletter CSV file, such as:
 - Business
 - Technology
 - Culture
@@ -284,18 +305,22 @@ Each categorized article shows:
 ## How It Works
 
 ### Data Sources
-1. **RSS Feeds** - Gets article titles, links, dates, content (public, no auth)
+1. **RSS Feeds** - Gets article titles, links, dates, name of lead author, summary, word count for content (public, no auth). Limited to the last 20 articles in the newsletter.
    ```
    https://newsletter.substack.com/feed
    ```
 2. **HTML Parsing** - Extracts engagement metrics from article pages
    - Parses Schema.org structured data in meta tags
    - Gets `comment_count` and `like_count` (reactions)
-   - **No API calls** unless overridden in runstring - complies with Substack TOS
+   - Validates `word_count` from the RSS file
+   
+3. **Substack API** - only enable this (override in runstring argument) after verifying that your intended use complies with Substack TOS
+   - Gets engagement metrics (`like_count`, `comment_count`, `restack_count`)
+   - Gets names of all byline authors
 
 ### Scoring Algorithm
 
-You can choose between two scoring methods:
+You can choose between two scoring methods (below). Scores are normalized to 1-100 range by default (you can now suppress normalization via the -nn runstring option).
 
 #### 1. Standard Scoring (Default - Recommended)
 
@@ -304,7 +329,7 @@ You can choose between two scoring methods:
 engagement = (comments × 2) + likes
 length = (word_count / 100) × 0.05
 raw_score = engagement + length
-normalized_score = scale to 1-100 range
+normalized_score = capped at 100, scaled to 1-100 range
 ```
 
 **Best for:**
@@ -323,7 +348,7 @@ normalized_score = scale to 1-100 range
 - Article with 0 likes, 3000 words = low score but not zero
 - Article with 5 comments, 500 words = medium-high score
 
-#### 2. Daily Average Scoring
+#### 2. Daily Average Scoring (may be useful for long look-back periods)
 
 **Formula:**
 ```python
@@ -331,7 +356,7 @@ engagement = (comments × 2) + likes
 daily_avg_engagement = engagement / days_since_publication
 length = (word_count / 100) × 0.05
 raw_score = daily_avg_engagement + length
-normalized_score = scale to 1-100 range
+normalized_score = capped at 100, scaled to 1-100 range
 ```
 
 **Best for:**
@@ -356,8 +381,8 @@ normalized_score = scale to 1-100 range
 - **Restacks: 3×** (deeper engagement signal, if available)
 - **Comments: 2×** (deeper engagement signal)
 - **Likes: 1×** (standard engagement)
-- **Length: 0.05 points per 100 words** (ensures non-zero scores)
-- **Score range: Always normalized to 1-100**
+- **Length: 0.05 points per 100 words** (supports non-zero scores)
+- **Score range: Always normalized to 1-100, unless overridden by -nn runstring argument**
 
 **To customize scoring:**
 Edit the constants in `digest_generator.py`:
@@ -425,25 +450,29 @@ Note that Substack will igmore these settings when you paste the digest into the
 
 ### Article Limits
 
-- **Featured count**: Set via CLI prompt or runstring
-- **Wildcard count**: Set via CLI prompt or runstring
+- **Featured count**: Set via CLI prompt or runstring. Default=5.
+- **Wildcard count**: Set via CLI prompt or runstring. Default=1.
 - **Articles per category**: No limit
 - **Articles per newsletter+author**: Default is no limit. Can set a limit in the runstring. Substack RSS limits seem to be 20 articles max.
 
 ### Known Limitations
 
-- ** Restack Counts**: Restack counts are currently only available if the Substack API is used for engagement metrics. This is controlled by a runstring argument (no prompting). 
+- ** Restack Counts**: Restack counts are currently only available if the Substack API is used for engagement metrics. This is controlled by the -u runstring argument (no prompting). 
 
-Future: Try to get restack counts from the HTML files, e.g. in <script>window._preloads = JSON.parse{...}, look for 		\"restacks\":<#>,\"reactions\":{\"\u2764\":<#>}
+Future: Try to get restack counts from the HTML files, e.g. in <script>window._preloads = JSON.parse{...}, look for \"restacks\":<#>,\"reactions\":{\"\u2764\":<#>}
 
 - **Author Listing**: At present, only the lead author name is in the RSS file. When there are multiple authors, Substack appears to choose the name which occurs first alphabetically.
--- Secondary or additional authors' names are not shown in the digest.  
--- If an Author name is specified in a column of the Newsletter file, and a named Author has a byline on the article but is not the first author name that Substack chooses as 'the' lead author, then that Author will not be matched to the article. 
+-- Secondary or additional authors' names are not shown in the digest. They are currently only available if the Substack API option is enabled (-u)
+-- If a name is specified in an Author column of the Newsletter file, and an article in that newsletter does not have a byline for that author, the article will not be included in the digest.
+-- If an article has no byline:
+--- If there is a Publisher column in the newseletter file and it has a value for that newsletter, the Publisher name will be assigned to the article as its Writer. 
+--- If there is no Publisher column, or no value for a specific newsletter, then the name 'Unknown at <newsletter name>' will be assigned to the article as its Writer.
+If Author name matching is enabled, then an article with no byline will not be included in the digest unless the Publisher is named as an Author in the newsletters file.
 
-A future workaround is to enhance the program to look inside the HTML of the article for additional author names. (Perhaps in 'entry' in <div id="main"  ... under <script type="application/ld+json">
+At present, co-author names are not available unless the Substack API is used. A future workaround is to enhance the program to look inside the HTML of the article for additional author names. (Perhaps in 'entry' in <div id="main"  ... under <script type="application/ld+json">
 		{"@context": ... "author":[{"@type":"Person","name":"A<the author name we want>", "url":"https://substack.com/@<author_handle>",}]}
 Or in <script>window._preloads = JSON.parse{...}, look for 'name' and 'handle' in 'contributors'. 
-Fetching the HTML file to look for author names will make execution a bit slower if the Substack API is being used for metrics instead of HTML. However, if restack counts can be obtained from the HTML, then the Substack API will not be needed and that API call can be dropped.
+If restack counts and co-author names can be obtained from the HTML in the future, then the Substack API will not be needed and that API call can be dropped to speed up the program's execution.
 
 ## Support
 

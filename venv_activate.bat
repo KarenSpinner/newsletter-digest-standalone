@@ -9,7 +9,7 @@ python -c "import sys; print(sys.executable)"
 
 REM Be sure we point to the right Python for any PIP usage 
 REM (need full path to prevent pip-audit complaints)
-set PIPAPI_PYTHON_LOCATION=%CD%\venv\scripts\python.exe
+set PIPAPI_PYTHON_LOCATION=%CD%\venv\Scripts\python.exe
 
 REM Prevent issues with logging UTF-8 output to a file
 set PYTHONIOENCODING=utf_8

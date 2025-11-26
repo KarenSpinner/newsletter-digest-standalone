@@ -14,7 +14,7 @@ REM This script uses a subfolder 'inputs' with the following files:
 REM   my_newsletters.csv
 REM   kjs_newsletters.csv
 REM   smiley_newsletters.csv
-REM   2025-11-20_my_SWAI_newsletters.csv 
+REM   2025-11-21_my_SWAI_newsletters.csv 
 REM Results (HTML and CSV) and log files will be stored in a dated TESTS subfolder. 
 REM Intermediate files (HTML and JSON) will be stored in a dated TEMP subfolder.
 
@@ -23,45 +23,68 @@ echo digest_generator.py regression tests starting at %date% %time%
 call venv_activate.bat
 call setDT.bat
 mkdir tests\%dt%
+mkdir temp\%dt%
 
+echo ******************************************************************************************************
+echo Save the current runstring help to help_text.txt
 python digest_generator.py -h >tests\%DT%\help_text.txt
 
+echo ******************************************************************************************************
 echo 1) Run with all defaults: csv_path, output HTML filename, HTML metrics, no article CSV file, all other basic options.
-copy my_newsletters.csv tests\%dt%\my_newsletters.csv
-cd tests\%dt%
-python ..\..\digest_generator.py >my_newsletters.test1.digest_defaults.log
-ren my_newsletters.csv my_newsletters.test1.csv
-ren my_newsletters.digest7d_s1_m0.*.f5_w1.html my_newsletters.test1.digest7d_s1_m0.*.f5_w1.html
-cd ..\..
+python digest_generator.py -o tests\%dt%\test1 >tests\%dt%\test1_my_newsletters.digest_defaults.log
+copy my_newsletters.csv tests\%dt%\test1\my_newsletters.csv
 
-echo 2) Repeat with Substack API calls for metrics (default HTML file only, no article CSV). Save JSONs to temp folder.
-copy my_newsletters.csv tests\%dt%\my_newsletters.test2.csv
-python digest_generator.py --use_substack_api Y --temp_folder temp\%dt% --csv_path tests\%dt%\my_newsletters.test2.csv >tests\%dt%\my_newsletters.test2.digest_substack_metrics.log
+echo ******************************************************************************************************
+echo 2) Repeat with Substack API calls for metrics and co-authors. 
+echo .  (default HTML file and article CSV; put timestamp into filename).
+echo .  Save JSONs and HTMLs to test2 subfolder in temp\%dt%.
+copy my_newsletters.csv tests\%dt%\test2_my_newsletters.csv
+python digest_generator.py -v -u -t temp\%dt%\test2 -oc . -oh . -ts -c tests\%dt%\test2_my_newsletters.csv >tests\%dt%\test2_my_newsletters.digest_substack_metrics.log
 
+echo ******************************************************************************************************
 REM Use default output naming on test3, specify filenames on test4
-echo 3) Run with my 3 newsletters only, 2000 days with standard scoring, 0 featured, 20 wildcards. Save article data to CSV and save HTMLs to temp.
-copy inputs\kjs_newsletters.csv       tests\%dt%\kjs_newsletters.test3.csv
-python digest_generator.py --csv_path tests\%dt%\kjs_newsletters.test3.csv --output_file_csv . --days_back 2000 --featured_count 0 --wildcards 20 --scoring_choice 1 --verbose Y --temp_folder temp\%dt%  >tests\%dt%\kjs_newsletters.test3.digest2000d_s1_f0_w20.log
+echo 3) Run with my 3 newsletters only, 1000 days with standard scoring, no normalization.
+echo .  Use Substack API to get restacks and co-authors.
+echo .  Request 0 featured, 3 wildcards (shouldn't get any, though). 
+echo .  Save article data to CSV and save HTMLs and JSON files to subfolder test3 in temp\%dt%.
+copy inputs\kjs_newsletters.csv tests\%dt%\test3_kjs_newsletters.csv
+python digest_generator.py -v -d 1000 -s 1 -nn -f 0 -w 0 -u -oc . -t temp\%dt%\test3 -c tests\%dt%\test3_kjs_newsletters.csv  >tests\%dt%\test3_kjs_newsletters.digest1000d_s1nN_f0w20.log
 
-echo 4) Run with my 3 newsletters only, 2000 days with daily average scoring, no wildcards. Save article data to CSV. No temp files.
-copy inputs\kjs_newsletters.csv       tests\%dt%\kjs_newsletters.test4.csv
-python digest_generator.py --csv_path tests\%dt%\kjs_newsletters.test4.csv --output_file_html tests\%dt%\kjs_newsletters.test4.digest2000d_s2_f20_w0.html --output_file_csv tests\%dt%\kjs_newsletters.test4.digest2000d_s2.csv --days_back 2000 --scoring_choice 2 --featured_count 20 --wildcards 0 --verbose Y >tests\%dt%\kjs_newsletters.test4.digest2000d_s2.log
+echo ******************************************************************************************************
+echo 4) Repeat with my 3 newsletters only, 1000 days with daily average scoring, no wildcards.
+echo .  Save article data to CSV. HTML metrics only, no restacks and no co-authors. No author name matching.
+echo .  (Should pull in 1 article Lakshmi wrote in AI6P without my byline, if within the 20 in RSS?)
+echo .  Use new output folder test4 and default naming for HTML and CSV outputs. No temp files saved. 
+copy inputs\kjs_newsletters.csv       tests\%dt%\test4_kjs_newsletters.csv
+python digest_generator.py -v -d1000 -s2 -nm -nn -f20 -w0 -oh . -oc . -c tests\%dt%\test4_kjs_newsletters.csv -o tests\%dt%\test4 >tests\%dt%\test4_kjs_newsletters.digest1000d_s2nN.log
 
-echo 5) Test with no category column and ignore author name matching even though Author column is present. Save articles to CSV. No temp files.
-copy tests\smiley_newsletter_tests.csv tests\%dt%\smiley_newsletters.test5.csv
-python digest_generator.py --csv_path  tests\%dt%\smiley_newsletters.test5.csv --output_file_csv . --days_back 30 --match_authors N --verbose Y >tests\%dt%\smiley_newsletters.test5.digest30d_m0_nomatch.log
+echo ******************************************************************************************************
+echo 5) 30-day test with Substack API for restacks and co-authors, Author matching, no categories.
+echo .  Use Publisher name as default if no byline.
+echo .  Save articles to CSV with expanded author names. No temp files.
+copy inputs\smiley_newsletters.csv tests\%dt%\test5_smiley_newsletters.csv
+python digest_generator.py -v -d30 -u -xma -oc . -c tests\%dt%\test5_smiley_newsletters.csv >tests\%dt%\test5_smiley_newsletters.digest30d_a0_nm.log
 
-echo 6) Test with full categorized SWAI newsletter list 500+, standard weekly digest with standard scoring, no max per author. Save article data to CSV and save JSON files to temp.
-copy inputs\2025-11-20_my_SWAI_newsletters.csv tests\%dt%\SWAI_newsletters_cats.test67.csv
-python digest_generator.py --csv_path tests\%dt%\SWAI_newsletters_cats.test67.csv --output_file_html tests\%dt%\SWAI_newsletters_cats.test6.digest7d_m0_s1_f5_w1.%dt%.html --output_file_csv tests\%dt%\SWAI_newsletters_cats.test6.digest7d_m0_s1.csv --use_substack_api Y --max_retries 7 --verbose Y --temp_folder temp\%dt% >tests\%dt%\SWAI_newsletters_cats.test6.digest7d_m0_s1_f5_w1.log
+echo ******************************************************************************************************
+echo 6) Test with full categorized SWAI newsletter list 500+, weekly digest with 10 featured and 10 wildcards,
+echo .  using standard scoring, no normalization, no max per author, publisher name available.
+echo .  Save article data to CSV and save HTML and JSON files to temp.
+copy inputs\my_SWAI_newsletters.csv tests\%dt%\test67_SWAI_newsletters_cats.csv
+python digest_generator.py -v -s1 -nn -f10 -w10 -rt 7 -u -t temp\%dt% -o tests\%dt%\test6 -oh . -oc . -c tests\%dt%\test67_SWAI_newsletters_cats.csv >tests\%dt%\test6_SWAI_newsletters_cats.digest7d_a0_s1nN_f5w1.log
 
-echo 7) Test with full SWAI newsletter list 500+, but fetch only one l article per writer and newsletter, go way back in time, and use daily average scoring. Save article data to CSV and save HTML files to temp.
-python digest_generator.py --csv_path tests\%dt%\SWAI_newsletters_cats.test67.csv --output_file_html . --output_file_csv . --use_substack_api N --max_retries 7 --max_articles_per_author 1 --days_back 2000 --scoring_choice 2 --verbose Y --temp_folder temp\%dt% >tests\%dt%\SWAI_newsletters_cats.test7.digest2000d_m1_s2.log
-ren tests\%dt%\SWAI_newsletters_cats.test67.digest*.* SWAI_newsletters_cats.test7.digest*.*
+echo ******************************************************************************************************
+echo 7) Test with full SWAI newsletter list 500+, but fetch only one l article per writer and newsletter, 
+echo .  publisher name available, go way back in time, and use daily average scoring without normalization. 
+echo .  0 featured, no wildcards. Fetch one row per writer+newsletter, save article data to CSV with 
+echo .  co-authors expanded to multiple rows, and save HTML and JSON files to temp (2nd version of some files from test6).
+echo . (This CSV output is used to update the latest article per author in the SheWritesAI directory.)
+python digest_generator.py -v -d2000 -a1 -s2 -nn -f0 -w0 -rt 7 -u -t temp\%dt% -oh . -oc . -xma -c tests\%dt%\test67_SWAI_newsletters_cats.csv >tests\%dt%\test7_SWAI_newsletters_cats.digest2000d_a1_s2nY.log
+ren tests\%dt%\test67_SWAI_newsletters_cats.digest*.* test7_SWAI_newsletters_cats.digest*.*
 
+echo ******************************************************************************************************
 call venv_deactivate.bat
 
-dir tests\%dt%\*.test*.*.log
+dir tests\%dt%\test*.*.log
 
 echo digest_generator.py regression tests finished at %date% %time%
 echo Check results in tests\%dt%*.log and digest output files
