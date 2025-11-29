@@ -80,7 +80,7 @@ GREEN_CHECKMARK_ICON="✅ "
 RED_X_FAILURE_ICON="❌ "
 STOPWATCH_ICON="⏱ "
 
-DG_VERSION="1.0.2" 
+DG_VERSION="1.0.3" 
 
 ''' Markdown link utilities '''
 def get_from_markdown(md_string:str, verbose=VERBOSE_DEFAULT):
@@ -311,7 +311,7 @@ class DigestGenerator:
         #    print(f"?? dc:creator not found in entry")
         return None    
 
-    def _fetch_articles(self, days_back=DEFAULT_DAYS_BACK, use_Substack_API=SUBSTACK_API_DEFAULT, max_retries=MAX_RETRY_COUNT, match_authors=MATCH_AUTHORS_DEFAULT, max_per_author=DEFAULT_PER_AUTHOR):
+    def _fetch_articles(self, days_back=DEFAULT_DAYS_BACK, use_Substack_API=SUBSTACK_API_DEFAULT, max_retries=MAX_RETRY_COUNT, match_authors=MATCH_AUTHORS_DEFAULT, max_per_author=DEFAULT_PER_AUTHOR, skip_rows=0, max_rows=0):
         """Fetch recent articles from all newsletters"""
         print(f"\n📰 Fetching articles from past {days_back} days...")
 
@@ -336,6 +336,15 @@ class DigestGenerator:
                 writer_handle=newsletter['writer_handle'] # KJS 2025-11-17 writer handle in Substack
                 handle_text = f" @{writer_handle}" if len(writer_handle)>0 else ""
                 author_text = f" ({writer_name}{handle_text})" if match_authors and len(writer_name)>0 else ''
+
+                # Use these to speed up partial testing without having to manually subset the file
+                if (max_rows>0) and (i-skip_rows > max_rows):
+                    if self.verbose: print(f"  [{i}/{len(self.newsletters)}] Row limit {max_rows} reached after skipping {skip_rows} rows. Stopping newsletter processing.")
+                    break
+                if (skip_rows>0) and (i<=skip_rows):
+                    if self.verbose: 
+                        print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text} - skipped")
+                    continue
 
                 print(f"  [{i}/{len(self.newsletters)}] {newsletter['name']}{author_text} ...", end='', flush=True)
 
@@ -396,22 +405,22 @@ class DigestGenerator:
                     # KJS 2025-11-24 look for creator if no author byline
                     elif creator and len(creator)>0:
                        authors.append(creator)
-                       if self.verbose: 
-                           print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to creator name '{creator}'")
+                       #if self.verbose: 
+                       #    print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to creator name '{creator}'")
                         
                     elif len(publisher_name)>0: 
                         # KJS 2025-11-17 If no byline or creator in item, try using the name of the Newsletter Publisher if known
                         authors.append(publisher_name)
-                        if self.verbose: 
-                            print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to publisher name '{publisher_name}'")
+                        #if self.verbose: 
+                        #    print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to publisher name '{publisher_name}'")
                     else:
                         # Some articles don't have bylines or a single known publisher.
                         # Make the unknown author name unique to newsletter so that we don't inadvertently
                         # match or exclude other unknown authors
                         unknown_author="("+UNKNOWN_AUTHOR_DEFAULT+" at "+newsletter['name']+")"
                         authors.append(unknown_author) # ensure authors[0] references will always work
-                        if self.verbose: 
-                            print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to {unknown_author}")
+                        #if self.verbose: 
+                        #    print(f"️\n{WARNING_TRIANGLE_ICON}No author name found; defaulting to {unknown_author}")
 
                     # KJS 2025-11-24 Get engagement metrics AND, potentially, a more complete author list
                     # BEFORE we check for matching
@@ -848,29 +857,27 @@ class DigestGenerator:
             article['raw_score'] = engagement_score + length_score
 
         # Normalize scores to 1-100 range
-        if self.articles:
+        raw_scores = [a['raw_score'] for a in self.articles]
 
-            raw_scores = [a['raw_score'] for a in self.articles]
+         # KJS 2025-11-16 handle outlier case (eg 400+) skewing all other scores low
+        min_score = min(min(raw_scores),MAX_RAW_SCORE)
+        max_score = min(max(raw_scores),MAX_RAW_SCORE) 
 
-             # KJS 2025-11-16 handle outlier case (eg 400+) skewing all other scores low
-            min_score = min(min(raw_scores),MAX_RAW_SCORE)
-            max_score = min(max(raw_scores),MAX_RAW_SCORE) 
-
-            # Handle edge case where all scores are the same
-            score_range = max_score - min_score
-            if score_range == 0:
-                for article in self.articles:
-                    article['score'] = MAX_RAW_SCORE/2.0  # All get mid-range score
-            else:
-                # KJS 2025-11-22
-                # We may not actually want to normalize the top scores to MAX_RAW_SCORE if all are below MAX_RAW_SCORE.
-                # We might only want to cap articles exceeding MAX_RAW_SCORE so they don't ruin the curve as badly.
-                for article in self.articles:
-                    # Normalize to 1-MAX_RAW_SCORE range, or use the raw score but cap it
-                    capped_score = min(article['raw_score'],MAX_RAW_SCORE)
-                    if normalize:
-                        capped_score = ((capped_score - min_score) / score_range) * 99.0 + 1.0
-                    article['score'] = capped_score
+        # Handle edge case where all scores are the same
+        score_range = max_score - min_score
+        if score_range == 0:
+            for article in self.articles:
+                article['score'] = MAX_RAW_SCORE/2.0  # All get mid-range score
+        else:
+            # KJS 2025-11-22
+            # We may not actually want to normalize the top scores to MAX_RAW_SCORE if all are below MAX_RAW_SCORE.
+            # We might only want to cap articles exceeding MAX_RAW_SCORE so they don't ruin the curve as badly.
+            for article in self.articles:
+                # Normalize to 1-MAX_RAW_SCORE range, or use the raw score but cap it
+                capped_score = min(article['raw_score'],MAX_RAW_SCORE)
+                if normalize:
+                    capped_score = ((capped_score - min_score) / score_range) * 99.0 + 1.0
+                article['score'] = capped_score
 
         # Sort by raw score descending (this way if we've normalized
         # more than one high-scoring post and capped them all at MAX_RAW_SCORE, 
@@ -880,21 +887,21 @@ class DigestGenerator:
         print(f"{GREEN_CHECKMARK_ICON}Scored {len(self.articles)} articles")
 
         # Show top 5 scores
-        if self.articles:
-            print("\n🏆 Top 5 articles:")
-            for i, article in enumerate(self.articles[:5], 1):
-                now = datetime.now(timezone.utc)
-                days_old = (now - article['published']).days  # use max (, 1) here?
-                print(f"   {i}. {article['title'][:75]}") # handle unicode chars in article titles
-                restack_text = f", {article['restack_count']} restacks" if article['restack_count']>0 else "" 
-                author_text = ' & '.join(article['authors'])
-                print(f"      In newsletter: {article['newsletter_name']} | by Author(s): {author_text}")
-                print(f"      Score: {article['score']:.1f} | "
-                      f"{article['reaction_count']} likes, "
-                      f"{article['comment_count']} comments"
-                      f"{restack_text} | "
-                      f"{article['word_count']} words | "
-                      f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})\n") # KJS Added actual date published
+        print("\n🏆 Top 5 articles:")
+        for i, article in enumerate(self.articles[:5], 1):
+            now = datetime.now(timezone.utc)
+            days_old = (now - article['published']).days  # use max (, 1) here?
+            print(f"   {i}. {article['title'][:75]}") # handle unicode chars in article titles
+            restack_text = f", {article['restack_count']} restacks" if article['restack_count']>0 else "" 
+            author_text = ' & '.join(article['authors'])
+            print(f"      In newsletter: {article['newsletter_name']} | by Author(s): {author_text}")
+            print(f"      Score: {article['score']:.1f} | "
+                  f"{article['reaction_count']} likes, "
+                  f"{article['comment_count']} comments"
+                  f"{restack_text} | "
+                  f"{article['word_count']} words | "
+                  f"{days_old}d old ({article['published'].strftime('%Y-%m-%d %H:%M')})\n") # KJS Added actual date published
+
         return True
 
     def _remove_author_from_pool(self, author, author_type, pool):
@@ -934,7 +941,7 @@ class DigestGenerator:
 
         wildcards = []
         if not (include_wildcards>0 and len(self.articles) > len(featured)):
-            if self.verbose: 
+            if self.verbose and include_wildcards:
                 print(f"Not enough articles for wildcard picks after {len(featured)} featured authors.")
             return wildcards
             
@@ -1258,9 +1265,9 @@ class DigestGenerator:
             if newsletter['name']==name:
                 newsletter['article_count'] += 1
                 return 1
-        if self.verbose:
-            print(f"{WARNING_TRIANGLE_ICON}Logic error: article in newsletter {name} cannot be counted, not found in list")
-            print(f"{self.newsletters}")
+
+        print(f"{WARNING_TRIANGLE_ICON}Logic error: article in newsletter {name} cannot be counted, not found in list")
+        print(f"{self.newsletters}")
         return 0
                 
     def _read_articles_from_csv(self, csv_path):
@@ -1397,6 +1404,8 @@ class DigestGenerator:
         if not self.articles: 
             print(f"{RED_X_FAILURE_ICON}Error: No articles to save to CSV file {csv_digest_file}")
             return 0
+        if self.verbose:
+            print(f"{len(self.articles)} articles to process for dataframe and CSV file ...")
         
         # Ignore len(self.articles)<1 and go ahead & make an empty file in the right format
         # Save the dataframe to the CSV file specified
@@ -1420,16 +1429,17 @@ class DigestGenerator:
                         if self._writer_in_newsletter_list(writer_name):
                             #if self.verbose: print(f"Adding row to CSV for writer {writer_name} - matched in newsletters file")
                             self._build_article_df(i, articles_df, article, writer_name)
+                            writers_added.append((writer_name,article['newsletter_name']))
                             i += 1
-                            writers_added.append(writer_name)
                         #else:
                             #if self.verbose: print(f"Not adding row to CSV for writer {writer_name} - not matched in newsletters file")
-                    if self.verbose: print(f"Added {len(writers_added)} article data rows for {writers_added} on {article['title']} (full author list: {article['authors']} )")
+                    #if self.verbose: print(f"Added {len(writers_added)} article data rows for {writers_added} on {article['title']} (full author list: {article['authors']} )")
                 else:
                     writer_name = article['writer_name']
                     # shouldn't need to check self._writer_in_newsletter_list(writer_name)
                     self._build_article_df(i, articles_df, article, writer_name)
                     i += 1
+                    #if self.verbose: print(f"Added one article data row for {writer_name},{article['newsletter_name']} on {article['title']} (one author, or not expanding)")
                     
         except Exception as e:        
             print(f"\n{RED_X_FAILURE_ICON}EXCEPTION while preparing data to write to CSV article file '{csv_digest_file}': \n{e}\n")
@@ -1437,11 +1447,18 @@ class DigestGenerator:
             return (-1)
             
         # articles_df is ready to write out
+        if self.verbose:
+            print(f"{len(articles_df)} dataframe rows ready to write to CSV file")
         try:
             # Sort in the desired order for lookups - author ascending, then date descending
             # if we are limiting to one article per author+newsletter
+            # (OK to have more than one per author if different newsletters - just sort by date)
             if max_per_author==1:
+                len_before=len(articles_df)
                 articles_df=articles_df.sort_values(['Writer', 'Date Published'], ascending=[True, False])
+                len_after=len(articles_df)
+                if len_before != len_after: 
+                    print(f"Articles_df row counts differ: before={len_before}, after={len_after}")
 
             # all done; save to file
             articles_df.to_csv(csv_digest_file, index=False)
@@ -1476,7 +1493,7 @@ class DigestGenerator:
 
         return len(self.articles)
 
-def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, csv_digest_file, reuse_csv_data=REUSE_ARTICLES_DEFAULT, normalize=NORMALIZE_DEFAULT, temp_folder='', expand_multiple_authors=False):
+def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, csv_digest_file, reuse_csv_data=REUSE_ARTICLES_DEFAULT, normalize=NORMALIZE_DEFAULT, temp_folder='', expand_multiple_authors=False, skip_rows=0, max_rows=0):
     ''' Non-Interactive function for digest generation (so it can be scripted and scheduled) '''
 
     generator = DigestGenerator(verbose, temp_folder)
@@ -1499,10 +1516,10 @@ def automated_digest(csv_path, days_back, featured_count, include_wildcards, use
             return -1
         print()
 
-        # Step 3: Fetch articles
+        # Step 3: Fetch articles - enforce skip_rows here, not above, so that we know the full set of author names
         print("Step 3: Fetch Articles")
         print("-" * 80)
-        articles = generator._fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, max_per_author=max_per_author) # TO DO: Update to handle start date-end date
+        articles = generator._fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, max_per_author=max_per_author, skip_rows=skip_rows, max_rows=max_rows) # TO DO: Update to handle start date-end date
 
         if not articles:
             print(f"\n{RED_X_FAILURE_ICON}No articles found! Try increasing the lookback period.")
@@ -1691,8 +1708,10 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
     parser.add_argument("-oc", "--output_file_csv", help=f"Output CSV filename for digest article data (e.g., '{OUTPUT_CSV_DEFAULT}'). Default=none. Use '.' for a default filename based on OUTPUT_FOLDER, CSV_PATH filename, settings, and timestamp (if enabled).", default="")
     parser.add_argument("-oh", "--output_file_html", help=f"Output HTML filename (e.g., '{OUTPUT_HTML_DEFAULT}' in interactive mode). Omit or use '.' in runstring for a default name based on OUTPUT_FOLDER, CSV_PATH filename, settings, and timestamp (if enabled).", default="")
     parser.add_argument("-ra", "--reuse_article_data", help=f"Read article data from CSV Path instead of newsletter data.", action="store_true")
+    parser.add_argument("-rows", "--max_rows", help=f"Maximum number of rows of newsletter file to read after skipping (default: no limit)", type=int, default=0)    
     parser.add_argument("-rt", "--retries", help=f"Number of times to retry failed API calls with increasing delays. Default={DEFAULT_RETRY_COUNT}. Retries will be logged as {STOPWATCH_ICON}.", type=int, default=DEFAULT_RETRY_COUNT) #, choices=range(0,MAX_RETRY_COUNT+1))
     parser.add_argument("-s", "--scoring_choice", help=f"Scoring method: 1=Standard, 2=Daily Average. Default={SCORING_CHOICE_DEFAULT}. Weights: Likes={LIKE_WEIGHT}, Comments={COMMENT_WEIGHT}, Restacks={RESTACK_WEIGHT}, Length={LENGTH_WEIGHT} per 100 words.",default=SCORING_CHOICE_DEFAULT, choices=['1', '2'])   
+    parser.add_argument("-skip", "--skip_rows", help=f"Number of rows of newsletter file to skip (default: none)", type=int, default=0)    
     parser.add_argument("-t", "--temp_folder", help=f"Subfolder for saving temporary HTML and JSON files (results of API calls), e.g. 'temp'. Default='' (no temp files saved)", default="")
     parser.add_argument("-ts", "--timestamp", help=f"Add datetimestamp to the default output file names.", action="store_true")    
     parser.add_argument("-u", "--use_substack_api", help=f"Use Substack API to get engagement metrics. (Default is to get metrics from HTML (faster, but restack counts are not available)", action="store_true")
@@ -1719,11 +1738,13 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         temp_folder       = args.temp_folder.strip()
         output_folder     = args.output_folder.strip()
 
-        days_back         = set_int_arg("Days Back",      args.days_back,      DEFAULT_DAYS_BACK,      1, MAX_DAYS_BACK)
-        featured_count    = set_int_arg("Featured Count", args.featured_count, DEFAULT_FEATURED_COUNT, 0, MAX_FEATURED_COUNT)
-        include_wildcards = set_int_arg("Wildcard Picks", args.wildcards,      DEFAULT_WILDCARD_PICKS, 0, MAX_WILDCARD_PICKS)
-        max_retries       = set_int_arg("Max Retries",    args.retries,        DEFAULT_RETRY_COUNT,    0, MAX_RETRY_COUNT)
-        max_per_author    = set_int_arg("Max Articles Per Author", args.articles_per_author, DEFAULT_PER_AUTHOR, 0, MAX_PER_AUTHOR) 
+        days_back         = set_int_arg("Number of Days to Look Back", args.days_back,   DEFAULT_DAYS_BACK,      1, MAX_DAYS_BACK)
+        featured_count    = set_int_arg("Number of Featured Articles", args.featured_count, DEFAULT_FEATURED_COUNT, 0, MAX_FEATURED_COUNT)
+        include_wildcards = set_int_arg("Number of Wildcard Picks", args.wildcards,      DEFAULT_WILDCARD_PICKS, 0, MAX_WILDCARD_PICKS)
+        max_retries       = set_int_arg("Max Retries on API calls",    args.retries,        DEFAULT_RETRY_COUNT,    0, MAX_RETRY_COUNT)
+        max_per_author    = set_int_arg("Max Articles Per Author+Newsletter", args.articles_per_author, DEFAULT_PER_AUTHOR, 0, MAX_PER_AUTHOR) 
+        skip_rows         = set_int_arg("Rows of Newsletter File To Skip", args.skip_rows, 0, 0, 10000) 
+        max_rows          = set_int_arg("Maximum Rows to Read From Newsletter File", args.max_rows, 0, 0, 10000) 
         
         verbose           = args.verbose
         timestamp         = args.timestamp
@@ -1754,6 +1775,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
 
         # Include days_back, scoring method & normalization, and max_per_author in default output filenames
         default_extension = f"digest{days_back}d_s{2 if use_daily_average else 1}n{yesno(normalize)[0]}_m{max_per_author}"
+        if skip_rows>0 or max_rows>0: default_extension = default_extension+f"_rows{skip_rows+1}-{skip_rows+max_rows}"
         if timestamp: default_extension = default_extension+f".{run_time}"
         
         # Set output folder path to be the same as the input file's folder, if not specified
@@ -1813,6 +1835,8 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
                 print(f"  Scoring method? {scoring_method}")
 
             # These are not currently prompted for, so show the values we're going to use
+            print(f"  Rows to skip at start of newsletter file? {skip_rows}")
+            print(f"  Maximum number of rows to read after skipping? {max_rows}")
             print(f"  Match author names against Author column in newsletter file? {yesno(match_authors)}")
             print(f"  Max articles per newsletter and author: {max_per_author if max_per_author>0 else 'No limit'}")
             print(f"  Use Substack API for engagement metrics? {yesno(use_Substack_API)}")
@@ -1842,7 +1866,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         if verbose: traceback.print_exc()
         return -1
 
-    config_dict = {'csv_path': csv_path, 'days_back': days_back, 'featured_count': featured_count, 'include_wildcards': include_wildcards, 'use_daily_average': use_daily_average, 'scoring_method': scoring_method,'show_scores': show_scores, 'use_Substack_API': use_Substack_API, 'verbose': verbose, 'max_retries': max_retries, 'match_authors': match_authors, 'max_per_author': max_per_author, 'output_file': output_file, 'csv_digest_file': csv_digest_file, 'reuse_csv_data': reuse_csv_data, 'normalize': normalize, 'temp_folder': temp_folder, 'expand_multiple_authors': expand_multiple_authors }
+    config_dict = {'csv_path': csv_path, 'days_back': days_back, 'featured_count': featured_count, 'include_wildcards': include_wildcards, 'use_daily_average': use_daily_average, 'scoring_method': scoring_method,'show_scores': show_scores, 'use_Substack_API': use_Substack_API, 'verbose': verbose, 'max_retries': max_retries, 'match_authors': match_authors, 'max_per_author': max_per_author, 'output_file': output_file, 'csv_digest_file': csv_digest_file, 'reuse_csv_data': reuse_csv_data, 'normalize': normalize, 'temp_folder': temp_folder, 'expand_multiple_authors': expand_multiple_authors, 'skip_rows': skip_rows, 'max_rows': max_rows  }
     
     return 0, config_dict
 
@@ -1873,7 +1897,8 @@ def main():
             config_dict['use_Substack_API'],  config_dict['verbose'],        config_dict['max_retries'],
             config_dict['match_authors'],     config_dict['max_per_author'], config_dict['output_file'], 
             config_dict['csv_digest_file'],   config_dict['reuse_csv_data'], config_dict['normalize'],
-            config_dict['temp_folder'],       config_dict['expand_multiple_authors'] )
+            config_dict['temp_folder'],       config_dict['expand_multiple_authors'],
+            config_dict['skip_rows'],         config_dict['max_rows'])
 
         if result >= 0:
             temp_folder=config_dict['temp_folder']

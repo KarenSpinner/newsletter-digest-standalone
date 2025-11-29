@@ -69,9 +69,10 @@ That's it! You're ready to go.
 usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
                            [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-nm]
                            [-nn] [-o OUTPUT_FOLDER] [-oc OUTPUT_FILE_CSV]
-                           [-oh OUTPUT_FILE_HTML] [-ra] [-rt RETRIES]
-                           [-s {1,2}] [-t TEMP_FOLDER] [-ts] [-u] [-v]
-                           [-w WILDCARDS] [-xma]
+                           [-oh OUTPUT_FILE_HTML] [-ra] [-rows MAX_ROWS]
+                           [-rt RETRIES] [-s {1,2}] [-skip SKIP_ROWS]
+                           [-t TEMP_FOLDER] [-ts] [-u] [-v] [-w WILDCARDS]
+                           [-xma]
 
 Generate newsletter digest.
 
@@ -121,6 +122,9 @@ options: (keywords must be in lower case as shown)
   -ra, --reuse_article_data
                         Read article data from CSV Path instead of newsletter
                         data.
+  -rows MAX_ROWS, --max_rows MAX_ROWS
+                        Maximum number of rows of newsletter file to read
+                        after skipping (default: no limit)
   -rt RETRIES, --retries RETRIES
                         Number of times to retry failed API calls with
                         increasing delays. Default=3. Retries will be logged
@@ -129,6 +133,9 @@ options: (keywords must be in lower case as shown)
                         Scoring method: 1=Standard, 2=Daily Average.
                         Default=1. Weights: Likes=1, Comments=2, Restacks=3,
                         Length=0.05 per 100 words.
+  -skip SKIP_ROWS, --skip_rows SKIP_ROWS
+                        Number of rows of newsletter file to skip (default:
+                        none)
   -t TEMP_FOLDER, --temp_folder TEMP_FOLDER
                         Subfolder for saving temporary HTML and JSON files
                         (results of API calls), e.g. 'temp'. Default='' (no
@@ -233,8 +240,8 @@ Step 2: Load Newsletters
 Step 3: Fetch Articles
 ----------------------------------------
 📰 Fetching articles from past 7 days...
-  [1/25] The Generalist... ✅ 2 articles
-  [2/25] Stratechery... ✅ 3 articles
+  [1/25] The Generalist... ✅ ✅ 2 articles
+  [2/25] Stratechery... ✅ ✅ ✅ 3 articles
   ...
 ✅ Fetched 47 total articles from 18 newsletters
 
