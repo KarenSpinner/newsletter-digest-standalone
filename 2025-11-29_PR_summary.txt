@@ -1,0 +1,6 @@
+2025-11-29 V1.0.3 PR notes
+
+- Added two new optional runstring arguments to control skipping N rows at the start of the newsletter file and capping the number of rows to be processed. Default=skip none, no maximum. This makes it easier and faster to test new additions to the end of a longer newsletter file, or to process it in chunks. Default output file names will include the row range, if specified.
+
+Known Limitations:
+- There appears to be a bug with matching an author name that contains a |. No articles are identified as matches for such a writer. This needs to be investigated further. Workaround: disable name matching for that writer in the newsletters file (leave Author cell blank on that row).
