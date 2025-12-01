@@ -1,6 +1,6 @@
 
 ********************************************************************************
-Digest generator v1.0.3 starting at 2025-11-29 14:19
+Digest generator v1.0.3 starting at 2025-12-01 01:28
 
 ================================================================================
 📧 Standalone Newsletter Digest Generator
@@ -10,12 +10,12 @@ Step 1: Digest Configuration
 --------------------------------------------------------------------------------
 
 usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
-                           [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-nm]
-                           [-nn] [-o OUTPUT_FOLDER] [-oc OUTPUT_FILE_CSV]
-                           [-oh OUTPUT_FILE_HTML] [-ra] [-rows MAX_ROWS]
-                           [-rt RETRIES] [-s {1,2}] [-skip SKIP_ROWS]
-                           [-t TEMP_FOLDER] [-ts] [-u] [-v] [-w WILDCARDS]
-                           [-xma]
+                           [-cc] [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs]
+                           [-nm] [-nn] [-o OUTPUT_FOLDER]
+                           [-oc OUTPUT_FILE_CSV] [-oh OUTPUT_FILE_HTML] [-ra]
+                           [-rows MAX_ROWS] [-rt RETRIES] [-s {1,2}]
+                           [-skip SKIP_ROWS] [-t TEMP_FOLDER] [-ts] [-u] [-v]
+                           [-w WILDCARDS] [-xma]
 
 Generate newsletter digest.
 
@@ -25,12 +25,16 @@ options:
   -a ARTICLES_PER_AUTHOR, --articles_per_author ARTICLES_PER_AUTHOR
                         Maximum number of articles to include for each
                         newsletter and author combination. 0=no limit, 1=most
-                        recent only, 2-max=20 ok. (Substack RSS file max is
-                        20.) Default=0.
+                        recent only, 2-20 ok. (Substack RSS file max is 20.)
+                        Default=0.
   -c CSV_PATH, --csv_path CSV_PATH
                         Path to CSV file with newsletter list (OR saved
-                        article data, with --reuse_CSV_data Y).
+                        article data, with --reuse_article_data Y).
                         Default='my_newsletters.csv'
+  -cc, --collapse_categories
+                        Collapse categories into detail sections in HTML page.
+                        Default=No. (Works for HTML page only; all sections
+                        will be expanded when pasted into Substack editor)
   -d DAYS_BACK, --days_back DAYS_BACK
                         How many days back to fetch articles. Default=7,
                         min=1.
@@ -41,9 +45,10 @@ options:
                         Wildcard sections
   -nm, --no_name_match  Do not use Author column in CSV newsletter file to
                         filter articles (partial matching). Matching is on by
-                        default if Author column is in the newsletter file. It
-                        has no effect if the cell is blank for a newsletter
-                        row.
+                        default if Author column is in the newsletter file,
+                        and has no effect if the cell is blank for a
+                        newsletter row. This option disables matching even if
+                        the column has names.
   -nn, --no_normalization
                         Suppress normalization of final scores to 1-100 range.
                         (Raw scores over 100.0 are still capped at final
@@ -63,8 +68,11 @@ options:
                         default name based on OUTPUT_FOLDER, CSV_PATH
                         filename, settings, and timestamp (if enabled).
   -ra, --reuse_article_data
-                        Read article data from CSV Path instead of newsletter
-                        data.
+                        Use CSV_PATH file to read article data from an
+                        OUTPUT_CSV file saved from a previous run of this
+                        tool. Will bypass use of any API calls to read RSS,
+                        HTML, or metrics, and will reuse previous scoring
+                        calculations.
   -rows MAX_ROWS, --max_rows MAX_ROWS
                         Maximum number of rows of newsletter file to read
                         after skipping (default: no limit)
@@ -85,9 +93,9 @@ options:
                         temp files saved)
   -ts, --timestamp      Add datetimestamp to the default output file names.
   -u, --use_substack_api
-                        Use Substack API to get engagement metrics. (Default
-                        is to get metrics from HTML (faster, but restack
-                        counts are not available)
+                        Use Substack API to get engagement metrics. Default is
+                        to get metrics from HTML (faster, but restack counts
+                        are not available)
   -v, --verbose         More detailed outputs while program is running.
   -w WILDCARDS, --wildcards WILDCARDS
                         Number of wildcard picks to include. Default=1, min=0

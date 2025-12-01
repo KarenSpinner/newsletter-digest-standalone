@@ -1,4 +1,4 @@
-# Standalone Newsletter Digest Generator V1.0.1
+# Standalone Newsletter Digest Generator V1.0.3
 
 A simple, self-contained digest generator that runs locally with **no authentication** and **no paid API calls**.
 
@@ -67,12 +67,12 @@ That's it! You're ready to go.
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
 usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
-                           [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-nm]
-                           [-nn] [-o OUTPUT_FOLDER] [-oc OUTPUT_FILE_CSV]
-                           [-oh OUTPUT_FILE_HTML] [-ra] [-rows MAX_ROWS]
-                           [-rt RETRIES] [-s {1,2}] [-skip SKIP_ROWS]
-                           [-t TEMP_FOLDER] [-ts] [-u] [-v] [-w WILDCARDS]
-                           [-xma]
+                           [-cc] [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs]
+                           [-nm] [-nn] [-o OUTPUT_FOLDER]
+                           [-oc OUTPUT_FILE_CSV] [-oh OUTPUT_FILE_HTML] [-ra]
+                           [-rows MAX_ROWS] [-rt RETRIES] [-s {1,2}]
+                           [-skip SKIP_ROWS] [-t TEMP_FOLDER] [-ts] [-u] [-v]
+                           [-w WILDCARDS] [-xma]
 
 Generate newsletter digest.
 
@@ -82,12 +82,16 @@ options: (keywords must be in lower case as shown)
   -a ARTICLES_PER_AUTHOR, --articles_per_author ARTICLES_PER_AUTHOR
                         Maximum number of articles to include for each
                         newsletter and author combination. 0=no limit, 1=most
-                        recent only, 2-max=20 ok. (Substack RSS file max is
-                        20.) Default=0.
+                        recent only, 2-20 ok. (Substack RSS file max is 20.)
+                        Default=0.
   -c CSV_PATH, --csv_path CSV_PATH
                         Path to CSV file with newsletter list (OR saved
-                        article data, with --reuse_CSV_data Y).
+                        article data, with --reuse_article_data Y).
                         Default='my_newsletters.csv'
+  -cc, --collapse_categories
+                        Collapse categories into detail sections in HTML page.
+                        Default=No. (Works for HTML page only; all sections
+                        will be expanded when pasted into Substack editor)
   -d DAYS_BACK, --days_back DAYS_BACK
                         How many days back to fetch articles. Default=7,
                         min=1.
@@ -98,9 +102,10 @@ options: (keywords must be in lower case as shown)
                         Wildcard sections
   -nm, --no_name_match  Do not use Author column in CSV newsletter file to
                         filter articles (partial matching). Matching is on by
-                        default if Author column is in the newsletter file. It
-                        has no effect if the cell is blank for a newsletter
-                        row.
+                        default if Author column is in the newsletter file,
+                        and has no effect if the cell is blank for a
+                        newsletter row. This option disables matching even if
+                        the column has names.
   -nn, --no_normalization
                         Suppress normalization of final scores to 1-100 range.
                         (Raw scores over 100.0 are still capped at final
@@ -120,8 +125,11 @@ options: (keywords must be in lower case as shown)
                         default name based on OUTPUT_FOLDER, CSV_PATH
                         filename, settings, and timestamp (if enabled).
   -ra, --reuse_article_data
-                        Read article data from CSV Path instead of newsletter
-                        data.
+                        Use CSV_PATH file to read article data from an
+                        OUTPUT_CSV file saved from a previous run of this
+                        tool. Will bypass use of any API calls to read RSS,
+                        HTML, or metrics, and will reuse previous scoring
+                        calculations.
   -rows MAX_ROWS, --max_rows MAX_ROWS
                         Maximum number of rows of newsletter file to read
                         after skipping (default: no limit)
@@ -142,9 +150,9 @@ options: (keywords must be in lower case as shown)
                         temp files saved)
   -ts, --timestamp      Add datetimestamp to the default output file names.
   -u, --use_substack_api
-                        Use Substack API to get engagement metrics. (Default
-                        is to get metrics from HTML (faster, but restack
-                        counts are not available)
+                        Use Substack API to get engagement metrics. Default is
+                        to get metrics from HTML (faster, but restack counts
+                        are not available)
   -v, --verbose         More detailed outputs while program is running.
   -w WILDCARDS, --wildcards WILDCARDS
                         Number of wildcard picks to include. Default=1, min=0
@@ -175,8 +183,8 @@ This allows very fast iteration, even with no network connection. And it makes t
 - Run the digest tool with a long lookback period (enough to cover your last 20 articles) and with the temp_folder option.
   Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv
 - The tool will generate a digest page and save a HTML copy of each of your articles in the backup_files folder
-- You can also save a CSV file of your article data with the links and metrics by including the -oc option.
-  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv -oc backup_files\my_article_data.csv
+- You can also save a CSV or HTML file of your article data with the links and metrics by including the -oc or -oh option.
+  Example: python digest_generator.py -d 90 -t backup_files -c my_backup.csv -oc backup_files\my_article_data.csv -oh backup_files\my_article_backup.html
 
 
 ### Interactive prompts:
@@ -288,11 +296,12 @@ Top-scored articles with:
 - Newsletter name with link
 - Author name
 - Days since publication and publication date
+- Category ('Uncategorized' if none is assigned in the newsletter CSV file)
 - Engagement stats (comments, likes, restacks if available) and score
 - Article summary
 
 ### 🎲 Wildcard Picks (optional)
-Same content as Featured Articles. One or more random articles from the next 10 highest-scored articles - helps surface hidden gems from authors not included in the Featured section!
+Same content as Featured Articles. One or more random articles from the next 10+ highest-scored articles - helps surface hidden gems from authors not included in the Featured section!
 
 ### 📂 Categorized Sections
 Remaining articles grouped by category, using categories in the newsletter CSV file, such as:
@@ -323,7 +332,7 @@ Each categorized article shows:
    
 3. **Substack API** - only enable this (override in runstring argument) after verifying that your intended use complies with Substack TOS
    - Gets engagement metrics (`like_count`, `comment_count`, `restack_count`)
-   - Gets names of all byline authors
+   - Gets names of ALL byline authors
 
 ### Scoring Algorithm
 
@@ -407,13 +416,13 @@ LENGTH_WEIGHT = 0.05    # Points per 100 words (default: 0.05)
 - Solution: set PYTHONIOENCODING=utf_8
 
 ### "CSV file not found"
-- Make sure `my_newsletters.csv` is in the same directory
-- Or provide the full path when prompted
+- Make sure `my_newsletters.csv` is in the current working directory
+- Or provide the full path when prompted (or in the runstring)
 
 ### "No articles found"
 - Try increasing the lookback period (14 or 21 days)
 - Some newsletters publish infrequently
-- Check that CSV has valid Substack URLs (newesletter writers sometimes change them)
+- Check that CSV has valid Substack URLs (newsletter writers sometimes change them)
 
 ### "HTTP errors" during fetch
 - Some newsletters may be temporarily down
@@ -460,26 +469,25 @@ Note that Substack will igmore these settings when you paste the digest into the
 - **Featured count**: Set via CLI prompt or runstring. Default=5.
 - **Wildcard count**: Set via CLI prompt or runstring. Default=1.
 - **Articles per category**: No limit
-- **Articles per newsletter+author**: Default is no limit. Can set a limit in the runstring. Substack RSS limits seem to be 20 articles max.
+- **Articles per newsletter+author**: Default is no limit. You can set a limit in the runstring if you wish. Substack RSS limits seem to be 20 articles max (per newsletter).
 
 ### Known Limitations
 
 - ** Restack Counts**: Restack counts are currently only available if the Substack API is used for engagement metrics. This is controlled by the -u runstring argument (no prompting). 
 
-Future: Try to get restack counts from the HTML files, e.g. in <script>window._preloads = JSON.parse{...}, look for \"restacks\":<#>,\"reactions\":{\"\u2764\":<#>}
+- **Author Listing**: At present, only the lead author name is available in the Substack RSS files we read. When there are multiple authors, Substack appears to choose the name which occurs first alphabetically.
+-- Co-authors' names are now included in the digest IF the Substack API option is enabled (-u runstring argument). Otherwise, co-author names are not available in the digest output files, and cannot be matched.
 
-- **Author Listing**: At present, only the lead author name is in the RSS file. When there are multiple authors, Substack appears to choose the name which occurs first alphabetically.
--- Secondary or additional authors' names are not shown in the digest. They are currently only available if the Substack API option is enabled (-u)
--- If a name is specified in an Author column of the Newsletter file, and an article in that newsletter does not have a byline for that author, the article will not be included in the digest.
--- If an article has no byline:
---- If there is a Publisher column in the newseletter file and it has a value for that newsletter, the Publisher name will be assigned to the article as its Writer. 
---- If there is no Publisher column, or no value for a specific newsletter, then the name 'Unknown at <newsletter name>' will be assigned to the article as its Writer.
-If Author name matching is enabled, then an article with no byline will not be included in the digest unless the Publisher is named as an Author in the newsletters file.
+- **Author Matching**: 
+The _Author_ column is not required in the input CSV file. If the column is present, and an Author value is provided, it will be matched to articles for that newsletter.
+-- When a name is specified in an Author column of the Newsletter file, and the byline for an article in that newsletter does not match that author, the article will not be included in the digest.
+-- To include all articles from a newsletter even if an Author name is present in the newsletter file, disable name matching (-nm runstring argument).
 
-At present, co-author names are not available unless the Substack API is used. A future workaround is to enhance the program to look inside the HTML of the article for additional author names. (Perhaps in 'entry' in <div id="main"  ... under <script type="application/ld+json">
-		{"@context": ... "author":[{"@type":"Person","name":"A<the author name we want>", "url":"https://substack.com/@<author_handle>",}]}
-Or in <script>window._preloads = JSON.parse{...}, look for 'name' and 'handle' in 'contributors'. 
-If restack counts and co-author names can be obtained from the HTML in the future, then the Substack API will not be needed and that API call can be dropped to speed up the program's execution.
+- **Missing Bylines**: 
+A small number of articles have no bylines, or named/credited authors. If an article has NO byline:
+- If there is no Publisher column, or no value for a specific newsletter, then the name 'Unknown at <newsletter name>' will be assigned to the article as its Writer.
+- If there is a _Publisher_ column in the newsletter file, and the row has a Publisher value for that newsletter, the Publisher name will be assigned to the article as its Writer. 
+If Author name matching is enabled _(there is an Author column, and a value for the Author, and the -nm option was not used)_, then an article with no byline will only be included in the digest if the Publisher is named as an Author in the newsletters file (on that row or on another row).
 
 ## Support
 
