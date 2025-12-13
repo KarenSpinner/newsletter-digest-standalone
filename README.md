@@ -1,4 +1,4 @@
-# Standalone Newsletter Digest Generator V1.0.3
+# Standalone Newsletter Digest Generator V1.0.4
 
 A simple, self-contained digest generator that runs locally with **no authentication** and **no paid API calls**.
 
@@ -43,6 +43,7 @@ Creates a formatted newsletter digest from your Substack subscriptions that you 
    - `Collections` - Additional tags or groupings (optional, not currently used)
    - `Author` - Only include articles by a specific author for a newsletter. Put the full or partial author name to match in the column. Blank for a row means no author name matching on that newsletter.
    - `Substack Handle` - If included, will be used in future to create hyperlinks to author names in the digest pages.
+   - `Publisher` - Name of publisher who runs the newsletter. This name will be listed as the author if an article in the newsletter has no byline.
    
    **Note:** Currently only supports Substack newsletters with public RSS feeds.
 
@@ -67,16 +68,16 @@ That's it! You're ready to go.
 **python digest_generator.py [options]** - run with specified options and default values for unspecified options
 
 usage: digest_generator.py [-h] [-i] [-a ARTICLES_PER_AUTHOR] [-c CSV_PATH]
-                           [-cc] [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs]
+                           [-cc] [-d DAYS_BACK] [-f FEATURED_COUNT] [-hs] [-j]
                            [-nm] [-nn] [-o OUTPUT_FOLDER]
                            [-oc OUTPUT_FILE_CSV] [-oh OUTPUT_FILE_HTML] [-ra]
                            [-rows MAX_ROWS] [-rt RETRIES] [-s {1,2}]
                            [-skip SKIP_ROWS] [-t TEMP_FOLDER] [-ts] [-u] [-v]
-                           [-w WILDCARDS] [-xma]
+                           [-w WILDCARDS] [-xf] [-xma]
 
 Generate newsletter digest.
 
-options: (keywords must be in lower case as shown)
+options:
   -h, --help            show this help message and exit
   -i, --interactive     Use interactive prompting for inputs.
   -a ARTICLES_PER_AUTHOR, --articles_per_author ARTICLES_PER_AUTHOR
@@ -97,9 +98,13 @@ options: (keywords must be in lower case as shown)
                         min=1.
   -f FEATURED_COUNT, --featured_count FEATURED_COUNT
                         How many articles to feature. Default=5, min=0 (none),
-                        max=20.
+                        max=200.
   -hs, --hide_scores    Hide scores on articles outside the Featured and
                         Wildcard sections
+  -j, --joint_authors   Highlight in a separate section all collaborative
+                        articles (jointly authored by two or more people from
+                        the newsletter CSV file). Requires -u (use Substack
+                        API).
   -nm, --no_name_match  Do not use Author column in CSV newsletter file to
                         filter articles (partial matching). Matching is on by
                         default if Author column is in the newsletter file,
@@ -129,7 +134,9 @@ options: (keywords must be in lower case as shown)
                         OUTPUT_CSV file saved from a previous run of this
                         tool. Will bypass use of any API calls to read RSS,
                         HTML, or metrics, and will reuse previous scoring
-                        calculations.
+                        calculations. Use this to experiment quickly with
+                        different HTML output options or for repeatable
+                        testing.
   -rows MAX_ROWS, --max_rows MAX_ROWS
                         Maximum number of rows of newsletter file to read
                         after skipping (default: no limit)
@@ -156,7 +163,11 @@ options: (keywords must be in lower case as shown)
   -v, --verbose         More detailed outputs while program is running.
   -w WILDCARDS, --wildcards WILDCARDS
                         Number of wildcard picks to include. Default=1, min=0
-                        (none), max=20.
+                        (none), max=200.
+  -xf, --expand_featured_for_ties
+                        Expand the Featured section when more than
+                        --feature_count articles share the same top score
+                        (they're tied).
   -xma, --expand_multiple_authors
                         When an article has multiple authors, expand the
                         article to multiple rows of the digest article CSV
@@ -164,6 +175,7 @@ options: (keywords must be in lower case as shown)
                         newsletter input file. Note that multiple authors are
                         currently only detected when using the Substack API
                         (-u option).
+
 
 ```
 **Tip for developers working on this tool** 

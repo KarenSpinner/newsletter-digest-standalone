@@ -51,8 +51,8 @@ LIKE_WEIGHT = 1         # How much to weight likes in scoring (standard engageme
 LENGTH_WEIGHT = 0.05    # Points per 100 words (e.g., 2000 words = 1 point scored)
 
 DEFAULT_DAYS_BACK=7;       MAX_DAYS_BACK=2000   # Use MAX_PER_AUTHOR=1 with MAX_DAYS_BACK to get the latest for each newsletter+author, even if not recent
-DEFAULT_FEATURED_COUNT=5;  MAX_FEATURED_COUNT=20
-DEFAULT_WILDCARD_PICKS=1;  MAX_WILDCARD_PICKS=20
+DEFAULT_FEATURED_COUNT=5;  MAX_FEATURED_COUNT=200
+DEFAULT_WILDCARD_PICKS=1;  MAX_WILDCARD_PICKS=200
 DEFAULT_RETRY_COUNT=3;     MAX_RETRY_COUNT=10
 DEFAULT_PER_AUTHOR=0;      MAX_PER_AUTHOR=20  # each RSS file seems to max out at 20 articles regardless, and this limit is per newsletter-author combo
 API_CALL_TIMEOUT=10           # KJS 2025-11-24 original value, parameterized
@@ -60,6 +60,18 @@ API_INITIAL_RETRY_DELAY=2.0   # KJS 2025-11-18 Wait 2 sec initially, instead of 
 API_RETRY_RAMPUP = 2.0        # double the delay time on subsequent retries (2, then 4, then 9, ...)
 API_PERIODIC_DELAY = 5.0      # wait 5 sec every so many API calls, regardless of retries
 MAX_RAW_SCORE = 100.0         # where we currently cap raw scores (TO DO: add a runstring parameter to allow changing this)
+
+# Writer	Date Published	UTC Date	Category	Authors	Article Title	Article URL	Article Link	Newsletter Name	Newsletter URL	Newsletter Link	Writer Name	Writer Handle	Summary	Words	Likes	Comments	Restacks	Raw Score	Score
+
+articles_columns=['Writer Name','Writer Handle','Publisher',
+                'Article Title','Article URL','Newsletter Name','Newsletter URL',
+                'Authors','Category','Date Published']
+
+DEBUG_COLUMNS=['Writer','Date Published','UTC Date','Category','Authors',
+               'Article Title','Article URL','Article Link','Newsletter Name',
+               'Newsletter URL','Newsletter Link','Writer Name','Writer Handle',
+               'Summary','Words','Likes','Comments','Restacks','Raw Score','Score',
+               'Type']
 
 VERBOSE_DEFAULT=False
 INTERACTIVE_DEFAULT=False
@@ -80,7 +92,13 @@ GREEN_CHECKMARK_ICON="✅ "
 RED_X_FAILURE_ICON="❌ "
 STOPWATCH_ICON="⏱ "
 
-DG_VERSION="1.0.3" 
+JOINT_ARTICLE_ICON="✨" # or 👥 ?
+WILDCARD_ARTICLE_ICON="🎲"
+FEATURE_ARTICLE_ICON="💟"  # or 💜 or ⭐ or 🌟?
+TOP_SCORE_ARTICLE_ICON="💯"
+CATEGORY_ARTICLE_ICON=""
+
+DG_VERSION="1.0.4 2025-12-12T0521" 
 
 ''' Markdown link utilities '''
 def get_from_markdown(md_string:str, verbose=VERBOSE_DEFAULT):
@@ -195,7 +213,7 @@ class DigestGenerator:
         """Load newsletters from CSV export"""
         csv_file = Path(csv_path)
         if not csv_file.exists():
-            print(f"{RED_X_FAILURE_ICON}Error: {csv_path} not found!")
+            print(f"{RED_X_FAILURE_ICON}ERROR: {csv_path} not found!")
             print(f"   Please create a CSV file with your newsletter subscriptions.")
             return False
 
@@ -216,7 +234,7 @@ class DigestGenerator:
 
         # Check added 2025-11-13 KJS
         if len(self.newsletters) < 1: # no errors, but no newsletters found
-            print(f"{RED_X_FAILURE_ICON}No newsletters to scan; stopping digest generation")
+            print(f"{RED_X_FAILURE_ICON}ERROR: No newsletters to scan; stopping digest generation")
             return False
 
         print(f"{GREEN_CHECKMARK_ICON}Loaded {len(self.newsletters)} newsletters from CSV")
@@ -352,7 +370,7 @@ class DigestGenerator:
                 headers = {'User-Agent': 'Mozilla/5.0 (compatible; DigestBot/1.0)'}
                 response = self._api_call_retries(headers, newsletter['rss_url'], max_retries=max_retries)
                 if not response:
-                    print(f"\n{RED_X_FAILURE_ICON}RSS API call failed with {max_retries} retries; skipping this newsletter")
+                    print(f"\n{RED_X_FAILURE_ICON}ERROR: RSS API call failed with {max_retries} retries; skipping this newsletter")
                     continue
 
                 feed = feedparser.parse(response.content)
@@ -536,8 +554,12 @@ class DigestGenerator:
                 else:
                     print(f" - (no recent articles)")
 
+            except KeyboardInterrupt:
+                print("\n\n👋 Digest generator interrupted by user - will save data already collected")
+                break
+
             except Exception as e:
-                print(f"\n{RED_X_FAILURE_ICON}Error on retrieving newsletter articles for {newsletter}:\n{e}")
+                print(f"\n{RED_X_FAILURE_ICON}EXCEPTION on retrieving newsletter articles for {newsletter}:\n{e}")
                 if self.verbose: traceback.print_exc()
                 newsletter['article_count']=-1
                 continue
@@ -641,7 +663,12 @@ class DigestGenerator:
                 # KJS 2025-11-21 Save API call response as JSON file, if enabled
                 # Now that we know the real author name (writer_name), set the filename
                 # If there is no writer_name, use the first name in the author list
-                article_filename = '' if len(self.temp_folder)==0 else self._make_unique_temp_filename (article['title'], article['writer_name'], article['authors'])
+                # 2025-12-11: To avoid problems with long digest periods and authors who reuse 
+                # the same title week after week, add the article datetime to the temp file name.
+                article_filename = ''
+                if len(self.temp_folder)>0:
+                    article_stub = f"{article['title']}_{article['published'].isoformat()}"
+                    article_filename = self._make_unique_temp_filename (article_stub, article['writer_name'], article['authors'])
                 self._save_article_json(post_data, article_filename)
                 article['filename'] = article_filename
                 
@@ -932,23 +959,26 @@ class DigestGenerator:
         # If an author has more than one featured article, they might already be gone from this list when
         # we call the function on their second featured article. That's not an error or worth a warning.
         if self.verbose and count>0: 
-            print(f"{count} articles for {author_type} author {author} removed from wildcard pool")
+            print(f"Removed from wildcard pool: {count} articles for {author_type} author {author}")
         return pool
         
-    def _select_wildcard_picks(self, featured, include_wildcards):
+    def _select_wildcard_picks(self, joint_articles, featured, include_wildcards):
         ''' Choose N wildcard picks from the higher end of the pool of articles & authors that were not already featured '''
 
-        # Select wildcard (1 random from next 10)
+        # Select wildcard (e.g. 1 random from next 10, or more)
+        joint_text=f"{len(joint_articles)} collaborations" if len(joint_articles)>0 else ""
+        featured_text=f"{len(featured)} featured authors" if len(featured)>0 else ""
+        exclusion_text=f"{joint_text}{' and ' if (len(joint_text)>0 and len(featured_text)>0) else ''} {featured_text}."
 
         wildcards = []
-        if not (include_wildcards>0 and len(self.articles) > len(featured)):
+        if not (include_wildcards>0 and len(self.articles) > len(featured)+len(joint_articles)):
             if self.verbose and include_wildcards:
-                print(f"Not enough articles for wildcard picks after {len(featured)} featured authors.")
+                print(f"Not enough articles for wildcard picks after {exclusion_text}")
             return wildcards
             
-        # KJS 2025-11-23 Remove authors with Featured articles from the wildcard pool. They already have attention.
+        # KJS 2025-11-23 Remove authors with joint or Featured articles from the wildcard pool. They already have attention.
         articles_minus_featured = self.articles.copy()
-        for article in featured: # may be empty
+        for article in featured+joint_articles: # either or both may be empty
             authors=article['authors']  # ok for this to be the whole list
             # KJS also remove other articles by this author (this will also get the featured article; let the count reflect it too)
             #articles_minus_featured.remove(article)
@@ -962,7 +992,7 @@ class DigestGenerator:
         # If this is the case, don't provide any wildcard picks.
         if len(articles_minus_featured)==0:
             if self.verbose: 
-                print(f"No articles remaining for wildcard picks after removing featured authors.")
+                print(f"No articles remaining for wildcard picks after removing {exclusion_text}.")
             return wildcards
 
         # Try to make the pool at least 10x the number of picks we want to make.
@@ -979,7 +1009,7 @@ class DigestGenerator:
                 wildcards.append(wildcard)
                 authors=wildcard['authors']
                 if self.verbose: 
-                    print(f"\nArticle by {authors} selected as wildcard pick #{i}")
+                    print(f"\nWildcard pick #{i}: article by {authors} selected")
                 
                 wildcard_pool.remove(wildcard) # so we don't draw it again and get a duplicate
                 # KJS 2025-11-23 limit to 1 wildcard per author by removing other posts by author from the pool
@@ -996,44 +1026,194 @@ class DigestGenerator:
         return wildcards
         
     def _is_article_in(self, article, articles_subset):
+        ''' Check if an article is in a list by comparing only specific fields that make it unique 
+            This lets us detect duplicates created by cloning an article for multiple writers
+        '''
         found=False
         for a in articles_subset:
             #if article==a:
-            if article['authors']==a['authors'] and article['title']==a['title'] and article['newsletter_name']==a['newsletter_name']:
+            if article['authors']==a['authors'] and article['title']==a['title'] and article['newsletter_name']==a['newsletter_name'] and article['published']==a['published']:
                 found=True
                 break
         return found
 
-    def generate_digest_html(self, featured_count, include_wildcards, days_back, scoring_method='daily_average', show_scores=SHOW_SCORES_DEFAULT, normalize=NORMALIZE_DEFAULT, collapse_categories=False):
-        """Generate Substack-ready HTML digest with clean formatting"""
-        print(f"\n📝 Generating digest HTML...")
+    def _writer_in_newsletter_list(self, writer_name):
+        ''' KJS 2025-11-23 check if writer is one of the people listed in the 
+            Author column of newsletter file  - or the Publisher column 
+            This method is a little optimistic, in that it calls a match to a 
+            publisher name even if there is a (different) author name.
+            _author_in_newsletter_list below doesn't call that a match.
+        '''
+        for newsletter in self.newsletters:
+            # Look for publisher name as well, in case Author column is blank
+            if newsletter['writer_name'].lower()==writer_name.lower() or newsletter['publisher'].lower()==writer_name.lower():
+                return True
+        return False
+
+    def _author_in_newsletter_list(self, writer_name):
+        ''' compare specific full writer name to the names of newsletter writers (or, use the publisher name, but only if no writer_name to match) '''
+        match=False
+        #if self.verbose: print(f"Checking writer name {writer_name} against newsletter list")
+        for newsletter in self.newsletters:
+            newsletter_name=newsletter['name']
+            if len(newsletter['writer_name'])>0 and writer_name.lower()==newsletter['writer_name'].lower(): 
+                match=True
+            elif len(newsletter['writer_name'])==0 and len(newsletter['publisher'])>0 and writer_name.lower()==newsletter['publisher'].lower(): 
+                match=True
+            if match: 
+                #if self.verbose: print(f"Matched writer name {writer_name} to {newsletter_name} in newsletter list at writer='{newsletter['writer_name']}', publisher='{newsletter['publisher']}'")
+                return newsletter_name
+        return ''
+
+    def _find_collaborations(self):
+        ''' Find articles that have at least two authors whose names are in the
+            newsletter CSV file. Update the order of the items in the articles list to put them at the top, in the same relative order that they were found.
+        '''
+
+        # This puts the jointly authored articles at the top, regardless of their score
+        # Then we skip over len(joint_articles) for subsequent selections.
+        joint_articles = []
+        if self.verbose: print(f"\nChecking for jointly authored articles\n")
+        for article in self.articles:
+            authors = article['authors']
+            if len(authors)<=1:
+                continue 
+            # Article has more than one author, but they might not be in our list.
+            matched_authors=[]
+            for author in authors:
+                # What we really want are collaborators who are not associated
+                # with the SAME newsletter. We want unique newsletters.
+                newsletter = self._author_in_newsletter_list(author)
+                if len(newsletter)>0 and newsletter not in matched_authors:    
+                    matched_authors.append(newsletter)
+            if len(matched_authors)>1:
+                if self.verbose: print(f"Matched {len(matched_authors)} authors' newsletters on article {article['title']}: newsletters {matched_authors}\n")
+                joint_articles.append(article)
+        if self.verbose: print(f"\nFound {len(joint_articles)} jointly authored articles\n")
+                
+        if len(joint_articles)>0:
+            # Now move all of the jointly authored articles to the top of the articles list        
+            new_article_list = []
+            for article in joint_articles:
+                new_article_list.append(article)
+            #if self.verbose: print(f"Copied {len(joint_articles)} jointly authored articles to top of new article list")
+            count=len(joint_articles)
+            for article in self.articles:
+                if article not in new_article_list:
+                    new_article_list.append(article)
+                    #if self.verbose: print(f"{count} Copied solo-authored article to new article list")
+                #else:
+                #    if self.verbose: print(f"{count} Skipped joint-authored article (already in list)")
+                count += 1
+            
+            # TO DO: Sanity checks: 
+            # - we should end up with the same number of articles as the original ilst
+            # - the first N of the new article list should be identical to the joint list
+            if len(new_article_list) != len(self.articles):
+                print(f"{WARNING_TRIANGLE_ICON}WARNING: joint article list logic is wrong - lengths of article lists don't match")
+                print(f"{len(new_article_list)} length of new list with joint articles at the top")
+                print(f"{len(self.articles)} length of original list of all articles")
+            
+            self.articles = new_article_list        
+
+        return joint_articles
+
+    def _remove_duplicates(self):
+        ''' Remove duplicate articles (repeats from -xma) from our list of articles '''
         
-        # Before we start, ensure that our list does not have any duplicates. 
-        # We could get duplicates if our list has the same newsletter listed with two different authors,
-        # and they co-wrote an article. 
+        # We could get duplicates if our list has the same newsletter listed 
+        # with two different authors, and they co-wrote an article. 
+        # Be careful though about authors who always reuse the same article title, just on different dates.
         dups_to_remove=[]
         article_count_before=len(self.articles)
         for i in range(1,article_count_before):
             article=self.articles[i]
             if article in self.articles[:i]:
-                #if self.verbose: print(f"Identified duplicate article for {article['newsletter_name']} and {article['authors']} ")
+                #if self.verbose: print(f"Identified duplicate article for {article['newsletter_name']} and {article['authors']} {article['published']}")
                 dups_to_remove.append(article)  # confirm this will only remove one of the instances
+
         for article in dups_to_remove:
             #if self.verbose: print(f"Removing duplicate article for {article['newsletter_name']} and {article['authors']} ")
-            self.articles.remove(article)
+            self.articles.remove(article) # only deletes first one it finds that matches
         article_count_after=len(self.articles)
+
         articles_removed=article_count_before-article_count_after
         if self.verbose and articles_removed>0: 
             print(f"{articles_removed} duplicate articles removed")
+        return articles_removed
 
-        # Now select featured articles
+    def _count_tied_feature_articles(self, joint_count, featured_count):
+        ''' count additional articles that have the same score as all others featured 
+            (likely all are MAX_RAW_SCORE, but it could vary)
+            ASSUMES that self.articles is already sorted descending by raw_score, and 
+            scores > MAX_RAW_SCORE have been capped
+        '''
+        #top_scoring_article=self.articles[joint_count] # first featured
+        #top_score=top_scoring_article['score']
+        top_score=MAX_RAW_SCORE
+
+        if self.verbose:
+            print(f"\nChecking for tied feature articles with joint_count={joint_count}, feature_count={featured_count} vs top score {MAX_RAW_SCORE}")
+        
+        num_featured = featured_count
+        for i in range(joint_count+featured_count,len(self.articles)):
+            article=self.articles[i]
+            # We only show scores to 1 decimal place (.1f). An exact comparison
+            # could mean that we stop at 99.87 which would show as 100,
+            # and people could wonder why it wasn't included as a 'tie'.
+            # So round here to the same precision that we use for showing scores.
+            score=round(article['score'],1)
+            if self.verbose:
+                print(f"{i} Checking score={article['score']} rounded to {score} for {article['writer_name']}")
+
+            #if score<top_score: break  
+            if score<top_score: 
+                if self.verbose:
+                    print(f"Stopping search for tied feature articles\n")
+                break  
+            num_featured += 1
+
+        if featured_count != num_featured: 
+            print(f"\nAdjusted number of Featured Articles from {featured_count} to {num_featured} to include all articles with identical scores ({top_score})\n")
+            
+        return num_featured        
+
+    def generate_digest_data(self, featured_count, include_wildcards, joint_authors=False, expand_featured_for_ties=False):
+        """Generate Substack-ready HTML digest data: joint, featured, wildcards, categorized """
+        print(f"\n📝 Generating digest data ...")
+
+        # Before we start, ensure that our list does not have any duplicates
+        # (e.g. from use of the -xma option)
+        self._remove_duplicates()
+
+        # If we are highlighting jointly authored articles, do that first, and
+        # pull them out before we choose the top N featured or choose wildcards
+        joint_articles = []
+        if joint_authors:
+            joint_articles=self._find_collaborations()
+            # This puts the jointly authored articles at the top of self.articles, regardless of their score
+            # Then we skip over len(joint_articles) for subsequent selections.
+
+        # Now select featured articles, but make sure we don't pick jointly 
+        # authored articles that are already highlighted
+        joint_article_count=len(joint_articles)
+        #if self.verbose: print(f"Length of joint articles list: {joint_article_count}")
+
         featured = []
         if featured_count>0:
-            featured = self.articles[:featured_count]
-            featured_count=len(featured) # could be less than requested
+            # Optional: If all of the featured articles have the maximum score,
+            # also include the next N articles which also have the max score.
+            # It will be more than requested, but essentially they are tied,
+            # so it seems more fair to include them.
+            if expand_featured_for_ties: 
+                num_featured = self._count_tied_feature_articles(joint_article_count, featured_count)
+            else:
+                num_featured = featured_count
+            featured = self.articles[joint_article_count:num_featured+joint_article_count].copy()
+            featured_count=len(featured) # could be more or less than requested
 
-        # Select wildcard (1 random from next 10)
-        wildcards = self._select_wildcard_picks(featured, include_wildcards)
+        # Select wildcard (e.g., 1 random from next 10)
+        wildcards = self._select_wildcard_picks(joint_articles, featured, include_wildcards)
         include_wildcards=len(wildcards) # actual could be less than requested
 
         # Group remaining articles by category
@@ -1042,9 +1222,25 @@ class DigestGenerator:
         # just in order by score
         categorized = defaultdict(list)
         for article in self.articles:
-            #if article not in featured and article not in wildcards:
-            if not self._is_article_in(article, featured) and not self._is_article_in(article, wildcards):
+            #if article not in featured, joint, or wildcards:
+            if not self._is_article_in(article, featured) and not self._is_article_in(article, wildcards) and not self._is_article_in(article, joint_articles):
                 categorized[article['newsletter_category']].append(article)
+        
+        return joint_articles, featured, wildcards, categorized
+
+    def _article_icons(self, article, default_icon, joint=False):
+        ''' add or combine icons based on article type (default icon) and whether it's a top scorer or joint '''
+        
+        # We show 1 digit of precision on scores (.1f), so don't compare more precisely than we show
+        top_icon = f"{'' if round(article['score'],1)<MAX_RAW_SCORE else TOP_SCORE_ARTICLE_ICON}"
+        joint_icon = f"{JOINT_ARTICLE_ICON if joint else ''}"
+        icon = f"{top_icon}{joint_icon}{default_icon}"
+        return icon
+
+    def generate_digest_html(self, joint_articles, featured_articles, wildcard_articles, categorized_articles, days_back, scoring_method, show_scores, normalized, collapse_categories, joint_authors):
+        """Generate Substack-ready HTML digest with clean formatting"""
+
+        print(f"\n📝 Generating digest HTML ...")
 
         # Build HTML with inline styles (Substack-friendly)
         html_parts = ["<html>","<body>"] 
@@ -1056,8 +1252,9 @@ class DigestGenerator:
         now = datetime.now() # in local time, not UTC, for display purposes (switch to UTC?)
         scoring_label = "Daily Average" if scoring_method == 'daily_average' else "Standard"
         lookback_text = f"{days_back} day lookback" if days_back>0 else ""
-        wildcard_text = f"• {len(wildcards)} Wildcard Pick(s) " if len(wildcards)>0 else "" # KJS 2025-11-17 added
-        norm_text=f" with{'' if normalize else 'out'} normalization"
+        wildcard_text = f"• {len(wildcard_articles)} Wildcard Pick(s) " if len(wildcard_articles)>0 else "" # KJS 2025-11-17 added
+        collab_text = f"{len(joint_articles)} Jointly Authored Article(s) • " if joint_authors else "" # KJS 2025-12-11 added; if requested, print number even if zero.
+        norm_text=f" with{'' if normalized else 'out'} normalization"
         
         # KJS 2025-11-30 Collapsible section will not paste into Substack. If someone
         # uses this feature and wants to paste the HTML into Substack, they'll need to
@@ -1068,7 +1265,7 @@ class DigestGenerator:
         <div style="text-align: center; padding: 40px 20px; margin-bottom: 40px;">
             <h1 style="font-size: 36px; font-weight: 700; color: #1a1a1a; margin: 0 0 10px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">Newsletter Digest</h1>
             <div style="font-size: 16px; color: #666; margin-bottom: 8px;">{now.strftime('%A, %B %d, %Y')}</div>
-            <div style="font-size: 14px; color: #666; margin-bottom: 8px;">{len(featured)} Featured Articles {wildcard_text}• {len(self.articles)} Total Articles</div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 8px;">{collab_text }{len(featured_articles)} Featured Articles {wildcard_text}• {len(self.articles)} Total Articles</div>
             <div style="font-size: 13px; color: #888; font-style: italic;">{scoring_label} scoring (engagement + length) {norm_text}<br>{lookback_text} • {len(self.newsletters)} newsletters</div>
         </div>
         ''')
@@ -1079,39 +1276,60 @@ class DigestGenerator:
         # Adding spacing before and after H2 with <p> or <div> or <br> or style padding & margin works well in a normal browser.
         # But Substack ignores padding & margin and does not respect the spacing before or after the end of the H2 with any of 
         # these methods. Haven't yet found a way to make it work well. Will keep experimenting.
-        
-        # Featured Section
-        if featured and len(featured)>0:
+
+        # Put collaborative (joint) articles first
+        if joint_authors and len(joint_articles)>0:
             if collapse_categories:
                 html_parts.append('<details><summary>')                
-            html_parts.append(f'{h2_style_start}Featured Articles ({len(featured)}){h2_style_end}')
+            html_parts.append(f'{h2_style_start}Jointly-Authored Collaborative Articles ({len(joint_articles)}){h2_style_end}')
             if collapse_categories:
                 html_parts.append('</summary>')                
 
-            for i, article in enumerate(featured, 1):
-                html_parts.append(self._format_article_featured(article, number=i, wildcard=False, show_scores=True))
+            for i, article in enumerate(joint_articles, 1):
+                icon=self._article_icons(article, "", joint=True)
+                html_parts.append(self._format_article_featured(article, number=i, icon=icon, show_scores=show_scores))
+
+            if collapse_categories:
+                html_parts.append('</details>')                
+                
+        # Featured Section
+        if featured_articles and len(featured_articles)>0:
+            if collapse_categories:
+                html_parts.append('<details><summary>')                
+            html_parts.append(f'{h2_style_start}Featured Articles ({len(featured_articles)}){h2_style_end}')
+            if collapse_categories:
+                html_parts.append('</summary>')                
+
+            for i, article in enumerate(featured_articles, 1):
+                # TO DO: Check if it's jointly authored (relevant if we are not breaking out
+                # jointly authored articles to the separate first section)
+                icon=self._article_icons(article, FEATURE_ARTICLE_ICON, joint=False)
+                html_parts.append(self._format_article_featured(article, number=i, icon=icon, show_scores=True))
 
             if collapse_categories:
                 html_parts.append('</details>')                
 
         # Wildcard Section
-        if wildcards and len(wildcards)>0:
+        if wildcard_articles and len(wildcard_articles)>0:
             if collapse_categories:
                 html_parts.append('<details><summary>')                
-            html_parts.append(f'{h2_style_start}Wildcard Pick{"s" if len(wildcards)>1 else ""} ({len(wildcards)}){h2_style_end}')
+            html_parts.append(f'{h2_style_start}Wildcard Pick{"s" if len(wildcard_articles)>1 else ""} ({len(wildcard_articles)}){h2_style_end}')
             if collapse_categories:
                 html_parts.append('</summary>')                
 
-            for i, article in enumerate(wildcards, 1):
-                html_parts.append(self._format_article_featured(article, number=(i if len(wildcards)>1 else None), wildcard=True, show_scores=show_scores))
+            for i, article in enumerate(wildcard_articles, 1):
+                # TO DO: Check if it's jointly authored (relevant if we are not breaking out
+                # jointly authored articles to the separate first section)
+                icon=self._article_icons(article, WILDCARD_ARTICLE_ICON, joint=False)
+                html_parts.append(self._format_article_featured(article, number=(i if len(wildcard_articles)>1 else None), icon=icon, show_scores=show_scores))
 
             if collapse_categories:
                 html_parts.append('</details>')                
 
         # Categorized Sections
-        if len(categorized)>0:
-            for category in sorted(categorized.keys()):
-                articles = categorized[category]
+        if len(categorized_articles)>0:
+            for category in sorted(categorized_articles.keys()):
+                articles = categorized_articles[category]
                 if articles:
                     if collapse_categories:
                         html_parts.append('<details><summary>')                
@@ -1121,7 +1339,10 @@ class DigestGenerator:
 
                     # TO DO: If not showing scores, consider grouping by newsletter and then ordering by date descending
                     for article in articles:
-                        html_parts.append(self._format_article_compact(article,show_scores=show_scores))
+                        # TO DO: Check if it's jointly authored (relevant if we are not breaking out
+                        # jointly authored articles to the separate first section)
+                        icon=self._article_icons(article, CATEGORY_ARTICLE_ICON, joint=False)
+                        html_parts.append(self._format_article_compact(article,show_scores=show_scores,icon=icon))
                     if collapse_categories:
                         html_parts.append('</details>')                
 
@@ -1131,7 +1352,7 @@ class DigestGenerator:
 
         return '\n'.join(html_parts)
 
-    def _format_article_line0(self, article, number=None, wildcard=False):
+    def _format_article_line0(self, article, number=None, icon=""):
         '''
         KJS 2025-11-16 Refactored line0 formatting out from featured and compact functions
         Makes the article title a hyperlink with mouseover text
@@ -1141,8 +1362,8 @@ class DigestGenerator:
         title_text = article['title']
         if number:
             title_text = f"{number}. {title_text}"
-        if wildcard:
-            title_text = f"🎲 {title_text}"
+        if len(icon)>0:
+            title_text = f"{icon} {title_text}"
         
         line0_style_start='<span style="font-size: 20px; font-weight: 700; line-height: 1.3; margin-bottom: 8px;">'
         line0_style_end='</span>'
@@ -1177,10 +1398,13 @@ class DigestGenerator:
 
         # KJS Prepare to hyperlink the first author's name to their Substack profile handle
         if article.get('authors') and len(article['authors']) > 0:
-            # Ideally we would only BOLD the name of the matched writer for this article.
-            # But this is ok for now.
-            author_text = ' & '.join(article['authors'])
-            first_line_parts.append(f"by <b><a style='color: #1a1a1a; font-weight: bold; text-decoration: none;' title='Author: {author_text}'>{author_text}</a></b>")
+            # Only BOLD the names of matched writers for this article.
+            formatted_authors=[]
+            for author in article['authors']:
+                author_name = f"<b>{author}</b>" if len(self._author_in_newsletter_list(author))>0 else author
+                formatted_authors.append(author_name)
+            author_text = ' & '.join(formatted_authors)
+            first_line_parts.append(f"by <a style=\"color: #1a1a1a; font-weight: bold; text-decoration: none;\" title=\"Author: {author_text}\">{author_text}</a>")
         # Otherwise author(s) are unknown, maybe no byline in the article.
         # Possible contingency: use the author name and handle from the newsletter, if it's available?
 
@@ -1241,14 +1465,14 @@ class DigestGenerator:
         summary_html = f'<br><span style="font-size: 16px; line-height: 1.3; color: #1a1a1a; margin-top: 12px;">{summary_text}</span>'
         return summary_html
 
-    def _format_article_featured(self, article, number=None, wildcard=False, show_scores=SHOW_SCORES_DEFAULT, include_category=True):
+    def _format_article_featured(self, article, number=None, icon="", show_scores=SHOW_SCORES_DEFAULT, include_category=True):
         '''Format a featured article with full details
         Featured articles include numbers or wildcard designators with the article title, and the article summary. 
         They are otherwise the same as compact articles.
         '''
 
         # Title
-        line0_html = self._format_article_line0(article, number, wildcard)
+        line0_html = self._format_article_line0(article, number, icon)
 
         # First line: Newsletter name, author(s), and date
         line1_html = self._format_article_line1(article)
@@ -1268,12 +1492,12 @@ class DigestGenerator:
         <br>&nbsp;</div>
         '''
 
-    def _format_article_compact(self, article, show_scores=SHOW_SCORES_DEFAULT):
+    def _format_article_compact(self, article, show_scores=SHOW_SCORES_DEFAULT, icon=""):
         ''' Format a compact article (for category sections) - no numbers, summary, no embedded category (it's already the section title), different HTML styling '''
 
         """Format a compact article with fewer details, no numbering"""
         # Title as hyperlink
-        line0_html = self._format_article_line0(article, number=None, wildcard=False)
+        line0_html = self._format_article_line0(article, number=None, icon=icon)
 
         # First line: Newsletter name, author(s), and date
         line1_html = self._format_article_line1(article)
@@ -1305,14 +1529,27 @@ class DigestGenerator:
         print(f"{self.newsletters}")
         return 0
                 
+    def _string_to_array(self, input_string: str, delimiter: str = "&") -> list[str]:
+        '''
+        Convert a string of values connected by a delimiter (default '&')
+        into a list of string values.
+        Inputs:
+            input_string (str): The input string containing values.
+            delimiter (str): The delimiter separating values. Default is '&'.
+
+        Returns: list[str]: A list of string values.
+        '''
+        if not input_string:
+            return []
+
+        # Split by delimiter and strip whitespace around each value
+        return [value.strip() for value in input_string.split(delimiter) if value.strip()]    
+
     def _read_articles_from_csv(self, csv_path):
         ''' Read digest article data from CSV file for reprocessing (reformatting) '''
 
         # Ensure the dataframe always has these columns, even if missing in the CSV file
-        articles_columns=['Writer Name','Writer Handle','Publisher',
-                'Article Title','Article URL','Newsletter Name','Newsletter URL',
-                'Authors','Category','Date Published']
-        articles_df=pd.DataFrame()
+        articles_df = pd.DataFrame()
     
         try:
             articles_df = pd.read_csv(csv_path)
@@ -1323,19 +1560,19 @@ class DigestGenerator:
                     articles_df[col]=''
             
         except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
-            print(f"\n{RED_X_FAILURE_ICON}ERROR: Reading from CSV digest data file '{csv_path}' failed: \n{e}\n")
+            print(f"\n{RED_X_FAILURE_ICON}EXCEPTION: reading from CSV digest data file '{csv_path}' failed: \n{e}\n")
             if self.verbose: traceback.print_exc()
             return (-1)
 
         if len(articles_df)<1:
-            print(f"{RED_X_FAILURE_ICON}Error: No article rows read from CSV digest data file {csv_path}")
+            print(f"{RED_X_FAILURE_ICON}ERROR: No article rows read from CSV digest data file {csv_path}")
             return -1
-        if self.verbose:
-            print(f"{GREEN_CHECKMARK_ICON}Read from CSV article file: {articles_df.head()}")
+        #if self.verbose:
+        #    print(f"{GREEN_CHECKMARK_ICON}Read from CSV article file: {articles_df.head()}")
         
         # Sanity check: Maybe this is a newsletter file and they set the runstring flag the wrong way
         if "Newsletter Name" in articles_df.columns and "Website URL" in articles_df.columns:
-            print(f"{RED_X_FAILURE_ICON}Error: Newsletter data, not article data, detected in file {csv_path}")
+            print(f"{RED_X_FAILURE_ICON}ERROR: Newsletter data, not article data, detected in file {csv_path}")
             print(f"Please unset reuse_article_data to fetch articles for these newsletters, or point --csv_path to an article data CSV output file from a previous run.")
             return -1
             
@@ -1359,10 +1596,18 @@ class DigestGenerator:
                 link = str(articles_df.at[i,'Article URL']).strip()
                 name = str(articles_df.at[i,'Newsletter Name']).strip()
                 url = str(articles_df.at[i,'Newsletter URL']).strip()      
-                authors = str(articles_df.at[i,'Authors']).strip()
+
+                # 2025-12-11 Unpack the Authors column which was written out as name1 & name2 & ...
+                # so that we have the array of authors we need for proper digest reuse processing
+                #authors = str(articles_df.at[i,'Authors']).strip()
+                authors_concatenated = str(articles_df.at[i,'Authors']).strip()
+                authors = self._string_to_array(authors_concatenated, "&")
+                #if self.verbose: print(f"Converted {authors_concatenated} to {authors}")
+
                 category = str(articles_df.at[i,'Category']).strip()                
                 datetime_value = datetime.fromisoformat(articles_df.at[i,'Date Published'])
                 # Ignore the Writer and UTC Date columns we added for convenience of use of the CSV for other purposes.
+                summary = str(articles_df.at[i,'Summary']).strip()
 
                 # First, add the newsletter if new. Ignore author name for now (we are not matching) and collections.
                 self._add_newsletter(name, url, writer_name=writer_name, writer_handle=writer_handle, category=category, collections='', publisher_name='')  # partially blank
@@ -1371,7 +1616,7 @@ class DigestGenerator:
                 article = {
                     'title':               title,
                     'link':                link,
-                    'summary':             articles_df.at[i,'Summary'].strip(),
+                    'summary':             summary,
                     'published':           datetime_value,
                     'publisher':           publisher_name,
                     'newsletter_name':     name, 
@@ -1379,7 +1624,7 @@ class DigestGenerator:
                     'writer_name':         writer_name, 
                     'writer_handle':       writer_handle, 
                     'newsletter_category': category,
-                    'authors':             [authors], # only 1 name, put in array (stub for now)
+                    'authors':             authors, 
                     'word_count':          int(articles_df.at[i,'Words']),
                     'comment_count':       int(articles_df.at[i,'Comments']),
                     'reaction_count':      int(articles_df.at[i,'Likes']),
@@ -1388,32 +1633,32 @@ class DigestGenerator:
                     'raw_score':           articles_df.at[i,'Raw Score'],
                     'score':               articles_df.at[i,'Score'],
                 }
-                articles.append(article)            
+                # 2025-12-12 Beware of duplicates (e.g. if this file was created with the -xma option)
+                if not article in articles:
+                    articles.append(article)            
 
                 # Need to find the right newsletter to bump its count.
                 self._count_article_for_newsletter(name)
 
         except Exception as e:        
             # Most likely: this isn't a valid saved article data file - one or more column names were not found
-            print(f"\n{RED_X_FAILURE_ICON}ERROR: Exception while processing CSV digest article data file '{csv_path}': \n{e}\n")
-            if self.verbose: traceback.print_exc()
+            print(f"\n{RED_X_FAILURE_ICON}EXCEPTION while processing CSV digest article data file '{csv_path}': \n{e}\n")
+            traceback.print_exc()
             return (-1)
-       
-        # Sort the list of articles in the order that the HTML processor wants it 
+            
+        # Sort the list of articles in the order that the data processor wants it 
         # - by raw score descending
-        articles.sort(key=lambda x: x['raw_score'], reverse=True)
+        self.articles=articles
+        self.articles.sort(key=lambda x: x['raw_score'], reverse=True)
 
         print(f"\n{GREEN_CHECKMARK_ICON}Data for {len(articles)} digest articles in {len(self.newsletters)} newsletters read from: {csv_path}")
-        self.articles=articles
-        return len(self.articles)
 
-    def _writer_in_newsletter_list(self, writer_name):
-        ''' KJS 2025-11-23 check if writer is one of the people listed in the Author column of newsletter file '''
-        for newsletter in self.newsletters:
-            # Look for publisher name as well, in case Author column is blank
-            if newsletter['writer_name']==writer_name or newsletter['publisher']==writer_name:
-                return True
-        return False
+        # 2025-12-12 Before we start, ensure that our list does not have any duplicates
+        # (e.g. from previous use of the -xma option)
+        # With the check we added above, there shouldn't be any, but let's be sure.
+        self._remove_duplicates()
+       
+        return len(self.articles)
 
     def _build_article_df(self, i, articles_df, article, writer_name):
         ''' Build dataframe row for a single article and writer, to go into the output article CSV file '''
@@ -1449,15 +1694,80 @@ class DigestGenerator:
         articles_df.at[i,'Raw Score'] = article['raw_score']
         articles_df.at[i,'Score']     = article['score']
 
-    def _save_articles_to_csv(self, csv_digest_file, max_per_author=DEFAULT_PER_AUTHOR, expand_multiple_authors=False):
-        ''' Save digest article data to CSV file for reuse or for dataviz/analysis '''
+    def _save_article_lists_to_csv(self, debug_digest_file, joint, featured, wildcards, categorized):
+        ''' Save the data to the CSV file specified '''
+        try:
+            articles_in_order=[]
+            for article in joint: 
+                article['Type']='joint'
+                articles_in_order.append(article)
+            for article in featured: 
+                article['Type']='featured'
+                articles_in_order.append(article)
+            for article in wildcards: 
+                article['Type']='wildcard'
+                articles_in_order.append(article)            
+            for category in sorted(categorized.keys()):
+                articles = categorized[category]
+                for article in articles: 
+                    article['Type']='categorized'
+                    articles_in_order.append(article)
+
+            # Sanity check: should have the same number of articles as the main list
+            if len(articles_in_order) != len(self.articles):
+                print(f"\n{WARNING_TRIANGLE_ICON}WARNING: Writing to CSV article debug file '{debug_digest_file}' articles got lost in the shuffle")
+                print(f"{len(articles_in_order)} articles in the combined lists")
+                print(f"{len(self.articles)} articles in the main list\n")
+                # continue anyway
+
+            i=0
+            articles_df = pd.DataFrame(columns=DEBUG_COLUMNS)
+            for article in articles_in_order:
+                writer_name = article['writer_name']  # no author name expansions for this file
+                self._build_article_df(i, articles_df, article, writer_name)
+                articles_df.at[i,'Type'] = article['Type']                
+                i += 1
+
+            #if self.verbose: 
+            #    print(f"Top of debug articles dataframe:")
+            #    print(articles_df.head())
+            #    print(articles_df.describe())
+                    
+        except Exception as e:        
+            print(f"\n{RED_X_FAILURE_ICON}EXCEPTION while preparing data to write to CSV debug article file '{debug_digest_file}': \n{e}\n")
+            if self.verbose: traceback.print_exc()
+            return (-1)
+            
+        # articles_df is ready to write out
+        if self.verbose:
+            print(f"{len(articles_df)} dataframe rows ready to write to CSV debug file")
+        try:
+            articles_df.to_csv(debug_digest_file, index=False)
+
+            print(f"\n💾 Article data saved to: {debug_digest_file}.")
+            print("   This file is in the exact order used to generate the HTML file and can be used for further analysis.\n")
+            return len(articles_df)
+        
+        except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
+            print(f"\n{RED_X_FAILURE_ICON}ERROR: Writing to CSV article debug file '{debug_digest_file}' failed: \n{e}\n")
+            #if self.verbose: traceback.print_exc()
+            return (-1)
+        except Exception as e:        
+            print(f"\n{RED_X_FAILURE_ICON}EXCEPTION while writing CSV article debug file '{debug_digest_file}': \n{e}\n")
+            #if self.verbose: traceback.print_exc()
+            return (-1)
+       
+    def _save_articles_to_csv(self, csv_digest_file, sort_data, expand_multiple_authors=False):
+        ''' Save digest article data to CSV file for reuse or for dataviz/analysis 
+            Dataframe is sorted ascending by author name if max_per_author=1
+        '''
         
         # Save articles to a dataframe if we have any
         if not self.articles: 
-            print(f"{RED_X_FAILURE_ICON}Error: No articles to save to CSV file {csv_digest_file}")
+            print(f"{RED_X_FAILURE_ICON}ERROR: No articles to save to CSV file {csv_digest_file}")
             return 0
         if self.verbose:
-            print(f"{len(self.articles)} articles to process for dataframe and CSV file ...")
+            print(f"{len(self.articles)} articles to process for dataframe and save to CSV file ...")
         
         # Ignore len(self.articles)<1 and go ahead & make an empty file in the right format
         # Save the dataframe to the CSV file specified
@@ -1502,10 +1812,10 @@ class DigestGenerator:
         if self.verbose:
             print(f"{len(articles_df)} dataframe rows ready to write to CSV file")
         try:
-            # Sort in the desired order for lookups - author ascending, then date descending
+            # Sort the file in the desired order for lookups - author ascending, then date descending
             # if we are limiting to one article per author+newsletter
             # (OK to have more than one per author if different newsletters - just sort by date)
-            if max_per_author==1:
+            if sort_data:
                 len_before=len(articles_df)
                 articles_df=articles_df.sort_values(['Writer', 'Date Published'], ascending=[True, False])
                 len_after=len(articles_df)
@@ -1515,6 +1825,10 @@ class DigestGenerator:
             # all done; save to file
             articles_df.to_csv(csv_digest_file, index=False)
 
+            print(f"\n💾 Article data saved to: {csv_digest_file}.")
+            print("   This file can be used for further analysis or to regenerate HTML with setting --reuse_article_data (-ra).")
+            return len(self.articles)
+        
         except (FileNotFoundError, IOError, OSError, PermissionError) as e:        
             print(f"\n{RED_X_FAILURE_ICON}ERROR: Writing to CSV article file '{csv_digest_file}' failed: \n{e}\n")
             #if self.verbose: traceback.print_exc()
@@ -1524,10 +1838,6 @@ class DigestGenerator:
             #if self.verbose: traceback.print_exc()
             return (-1)
        
-        print(f"\n💾 Article data saved to: {csv_digest_file}.")
-        print("   This file can be used for further analysis or to regenerate HTML with setting --reuse_article_data (-ra).")
-        return len(self.articles)
-        
     def save_digest_html(self, html, filename=OUTPUT_HTML_DEFAULT):
         """Save digest to HTML file; let outer level catch any exceptions since we already validted name """
         output_path = Path(filename)
@@ -1545,70 +1855,90 @@ class DigestGenerator:
 
         return len(self.articles)
 
-def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, csv_digest_file, reuse_article_data=REUSE_ARTICLES_DEFAULT, normalize=NORMALIZE_DEFAULT, temp_folder='', expand_multiple_authors=False, skip_rows=0, max_rows=0, collapse_categories=False):
+def automated_digest(csv_path, days_back, featured_count, include_wildcards, use_daily_average, scoring_method, show_scores, use_Substack_API, verbose, max_retries, match_authors, max_per_author, output_file, csv_digest_file, reuse_article_data=REUSE_ARTICLES_DEFAULT, normalize=NORMALIZE_DEFAULT, temp_folder='', expand_multiple_authors=False, skip_rows=0, max_rows=0, collapse_categories=False, joint_authors=False, expand_featured_for_ties=False):
     ''' Non-Interactive function for digest generation (so it can be scripted and scheduled) '''
 
     generator = DigestGenerator(verbose, temp_folder)
 
     if reuse_article_data:
         # skip some steps (this lets us run and test the scoring and HTML generation offline)
-        if verbose: print(f"Skipping Steps 1-4 for newsletter RSS reading and metrics gathering")
+        if verbose: print(f"Skipping Steps 2-3 for newsletter RSS reading and metrics gathering")
         
         result = generator._read_articles_from_csv(csv_path)
-        if verbose: print(f"Result from _read_articles_from_csv: {result}")
         if result <= 0:
+            if verbose: print(f"Result from _read_articles_from_csv: {result}")
             return result
         
     else:
         # Step 2: Load newsletters
-        print("Step 2: Load Newsletters")
+        print("\nStep 2: Load Newsletters")
         print("-" * 80)
 
         if not generator._load_newsletters_from_csv(csv_path):
             return -1
-        print()
 
         # Step 3: Fetch articles - enforce skip_rows here, not above, so that we know the full set of author names
-        print("Step 3: Fetch Articles")
+        print("\nStep 3: Fetch Articles")
         print("-" * 80)
         articles = generator._fetch_articles(days_back=days_back, use_Substack_API=use_Substack_API, max_retries=max_retries, match_authors=match_authors, max_per_author=max_per_author, skip_rows=skip_rows, max_rows=max_rows) # TO DO: Update to handle start date-end date
 
         if not articles:
-            print(f"\n{RED_X_FAILURE_ICON}No articles found! Try increasing the lookback period.")
+            print(f"\n{RED_X_FAILURE_ICON}ERROR: No articles found! Try increasing the lookback period.")
             return -1
 
-        print()
+    # Step 4: Score articles (2025-12-11 let reuse_article_data repeat the scoring)
+    print("\nStep 4: Score Articles")
+    print("-" * 80)
+    generator._score_articles(use_daily_average=use_daily_average, normalize=normalize)
 
-        # Step 4: Score articles (TO DO: let reuse_article_data repeat the scoring once the rest is working)
-        print("Step 4: Score Articles")
-        print("-" * 80)
-        generator._score_articles(use_daily_average=use_daily_average, normalize=normalize)
-
-        print()
+    print()
 
     # Step 5: Generate digest HTML and CSV and save them
     # Save the data on the articles to a dataframe, then to CSV (if option selected by user)
-    print("Step 5: Save Digest")
+    print("\nStep 5: Save Digest")
     print("-" * 80)
 
     # Save CSV data (even if reusing, in case scoring changed)
     if csv_digest_file and len(csv_digest_file)>0:
         print(f"Saving article data to {csv_digest_file}")
-        generator._save_articles_to_csv(csv_digest_file, max_per_author=max_per_author, expand_multiple_authors=expand_multiple_authors)
+        generator._save_articles_to_csv(csv_digest_file, sort_data=(max_per_author==1), expand_multiple_authors=expand_multiple_authors)
         print("-" * 80)
     else:
         if verbose: print(f"No output_file_csv name specified; not saving article data")
 
-    # Now the HTML page, using possibly-new scores and options
+    # Assemble the data groupings, using possibly-new scores and options
+    # TO DO: Test if this can be done safely BEFORE saving the CSV digest file, not after.
+    # That way we could include the actual number of joint, featured, & wildcard articles in the filename
+    joint, featured, wildcards, categorized = generator.generate_digest_data(featured_count, include_wildcards, joint_authors, expand_featured_for_ties)
+    
+    if generator.verbose:
+        print("\nBefore saving the debug file:")
+        print(f"Joint: {len(joint)} Featured: {len(featured)} Wildcards: {len(wildcards)} ")
+        print(f"Categories: {len(categorized.keys())} ")
+        for cat in sorted(categorized.keys()):
+            print(f"  Category {cat} count={len(categorized[cat])} ")
+    
+    if generator.verbose and len(csv_digest_file)>0:
+        # For debugging and other purposes, save a copy of the articles as they are now, after being rearranged to put joint articles at the top
+        # DO NOT SORT IT. We want the order it's in.
+        debug_digest_file = change_file_extension(csv_digest_file,"debug.csv")
+        print(f"Saving processed article data to {debug_digest_file}")
+        generator._save_article_lists_to_csv(debug_digest_file, joint, featured, wildcards, categorized)
+        print("-" * 80)
+
+    if generator.verbose:
+        print("\nAfter saving the debug file:")
+        print(f"Joint: {len(joint)} Featured: {len(featured)} Wildcards: {len(wildcards)} ")
+        print(f"Categories: {len(categorized.keys())} ")
+        for cat in sorted(categorized.keys()):
+            print(f"  Category {cat} count={len(categorized[cat])} ")    
+
+    # Now the HTML page
     html = generator.generate_digest_html(
-        featured_count=featured_count,
-        include_wildcards=include_wildcards,
-        days_back=days_back,
-        scoring_method=scoring_method,
-        show_scores=show_scores,
-        normalize=normalize,
-        collapse_categories=collapse_categories,
-    )
+        joint, featured, wildcards, categorized,
+        days_back, scoring_method, show_scores, normalize,
+        collapse_categories, joint_authors)
+
     result = generator.save_digest_html(html, output_file)
 
     return result
@@ -1650,10 +1980,11 @@ def interactive_cli(reuse_article_data=False, verbose=VERBOSE_DEFAULT):
         # We also don't know the date the data extraction was run. We could estimate from the
         # latest publication date on all of the articles, but it's likely off by some amount.
         days_back=None 
-        use_daily_average=SCORING_CHOICE_DEFAULT
         csv_path = input(f"Path to CSV file with article data (press Enter for '{ARTICLES_CSV_DEFAULT}'): ").strip()
         if not csv_path:
             csv_path = ARTICLES_CSV_DEFAULT
+        # 2025-12-11 Allow scoring (and normalization?) to be specified
+        #use_daily_average=SCORING_CHOICE_DEFAULT
     else:
         csv_path = input(f"Path to CSV file with newsletter list (press Enter for '{CSV_PATH_DEFAULT}'): ").strip()
         if not csv_path:
@@ -1665,7 +1996,8 @@ def interactive_cli(reuse_article_data=False, verbose=VERBOSE_DEFAULT):
         # When reusing articles, we do not currently prompt for other data reading and processing options, like retries.
         # Consider adding later?
 
-    # These prompts pertain to scoring and generating the HTML after the data is fetched, so ask them
+    # These prompts pertain to scoring and generating the HTML after the data is fetched,
+    # but our reuse does not yet do re-scoring. 
     print("\nScoring method:")
     print("  1. Standard - Favors total engagement (50 likes last week > 10 likes today)")
     print("  2. Daily Average - Favors recent articles (10 likes today > 50 likes last week)")
@@ -1704,8 +2036,8 @@ def validate_output_file(filename, verbose=VERBOSE_DEFAULT):
         #if verbose: traceback.print_exc()
         return False    
 
-INVALID_FOLDER_CHARS = r'[:*?"<>|]'  # treat \ and / as valid for folder, since we will treat string as a path & subfolders are potentially ok
-INVALID_FILE_CHARS = r'[\\/:*?"<>|]' # replace these in the filename
+INVALID_FOLDER_CHARS = r'[:*?"<>|\[\]&]'  # treat \ and / as valid for folder, since we will treat string as a path & subfolders are potentially ok
+INVALID_FILE_CHARS = r'[\\/:*?"<>|\[\]&]' # replace these in the filename
 
 def make_valid_filename (filename):
     ''' change an article title which might have invalid characters in it to a suitable filename '''
@@ -1756,6 +2088,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
     parser.add_argument("-d", "--days_back", help=f"How many days back to fetch articles. Default={DEFAULT_DAYS_BACK}, min=1.", type=int, default=DEFAULT_DAYS_BACK)
     parser.add_argument("-f", "--featured_count", help=f"How many articles to feature. Default={DEFAULT_FEATURED_COUNT}, min=0 (none), max={MAX_FEATURED_COUNT}.", type=int, default=DEFAULT_FEATURED_COUNT)
     parser.add_argument("-hs", "--hide_scores", help=f"Hide scores on articles outside the Featured and Wildcard sections", action="store_true")
+    parser.add_argument("-j", "--joint_authors", help=f"Highlight in a separate section all collaborative articles (jointly authored by two or more people from the newsletter CSV file). Requires -u (use Substack API).", action="store_true")
     parser.add_argument("-nm", "--no_name_match", help=f"Do not use Author column in CSV newsletter file to filter articles (partial matching). Matching is on by default if Author column is in the newsletter file, and has no effect if the cell is blank for a newsletter row. This option disables matching even if the column has names.", action="store_true")
     parser.add_argument("-nn", "--no_normalization", help=f"Suppress normalization of final scores to 1-100 range. (Raw scores over {MAX_RAW_SCORE} are still capped at final score={MAX_RAW_SCORE} regardless.)", action="store_true")
     parser.add_argument("-o", "--output_folder", help=f"Subfolder for saving default OUTPUT_FILE_CSV and OUTPUT_FILE_HTML. Will be created if it does not exist. Default: folder location of CSV_PATH.", default="")
@@ -1771,6 +2104,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
     parser.add_argument("-u", "--use_substack_api", help=f"Use Substack API to get engagement metrics. Default is to get metrics from HTML (faster, but restack counts are not available)", action="store_true")
     parser.add_argument("-v", "--verbose", help=f"More detailed outputs while program is running.", action="store_true")
     parser.add_argument("-w", "--wildcards", help=f"Number of wildcard picks to include. Default={DEFAULT_WILDCARD_PICKS}, min=0 (none), max={MAX_WILDCARD_PICKS}.", type=int, default=DEFAULT_WILDCARD_PICKS)
+    parser.add_argument("-xf", "--expand_featured_for_ties", help=f"Expand the Featured section when more than --feature_count articles share the same top score (they're tied).", action="store_true")
     parser.add_argument("-xma", "--expand_multiple_authors", help=f"When an article has multiple authors, expand the article to multiple rows of the digest article CSV (output) file for all authors included in the newsletter input file. Note that multiple authors are currently only detected when using the Substack API (-u option).", action="store_true")
 
     # Step 1: Configuration
@@ -1800,18 +2134,33 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         skip_rows         = set_int_arg("Rows of Newsletter File To Skip", args.skip_rows, 0, 0, 10000) 
         max_rows          = set_int_arg("Maximum Rows to Read From Newsletter File", args.max_rows, 0, 0, 10000) 
         
-        verbose           = args.verbose
-        timestamp         = args.timestamp
-        reuse_article_data    = args.reuse_article_data
-        use_Substack_API  = args.use_substack_api
-        match_authors     = not args.no_name_match
-        show_scores       = not args.hide_scores
-        normalize         = not args.no_normalization
+        verbose            = args.verbose
+        timestamp          = args.timestamp
+        reuse_article_data = args.reuse_article_data
+        use_Substack_API   = args.use_substack_api
+        match_authors      = not args.no_name_match
+        show_scores        = not args.hide_scores
+        normalize          = not args.no_normalization
         collapse_categories = args.collapse_categories
+        joint_authors       = args.joint_authors
         expand_multiple_authors = args.expand_multiple_authors
-        if expand_multiple_authors and not (use_Substack_API and len(csv_digest_file)>0):
-            print(f"{RED_X_FAILURE_ICON}Error: option to expand multiple authors (-xma) currently requires creating an output CSV file (-oc) and using the Substack API (-u) to detect multiple authors.")
-            return -1
+        expand_featured_for_ties = args.expand_featured_for_ties
+
+        if reuse_article_data:
+            # Days Back, Match Authors, Use Substack API, and Max Retries won't be used.
+            # Warn the user if they have over-specified those that default to false.
+            if expand_multiple_authors or use_Substack_API or not match_authors or not normalize:
+                print(f"{WARNING_TRIANGLE_ICON}WARNING: Ignoring data extraction settings since -ra was specified")
+                #expand_multiple_authors=False
+                use_Substack_API=False
+
+        if (expand_multiple_authors) and len(csv_digest_file)==0:
+            print(f"{WARNING_TRIANGLE_ICON}WARNING: Ignoring option to expand multiple authors (-xma) since no output file is being created (-oc).")
+            expand_multiple_authors = False
+        
+        if (expand_multiple_authors or joint_authors) and (not use_Substack_API) and (not reuse_article_data):
+            print(f"{WARNING_TRIANGLE_ICON}WARNING: option to expand multiple authors (-xma) or have a section for joint authors (-j) requires using the Substack API (-u) to detect multiple authors. Enabling it for you.")
+            use_Substack_API = True
         
         use_daily_average = (args.scoring_choice == '2')
 
@@ -1819,18 +2168,23 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         # or a set of previously saved article data.
         # Usage depends on whether reuse_article_data is set to Y.
         if len(csv_path)<5:
-            print(f"{RED_X_FAILURE_ICON}Cannot use {csv_path} as file path for newsletter CSV input or article data. Aborting.")
+            print(f"{RED_X_FAILURE_ICON}ERROR: Cannot use {csv_path} as file path for newsletter CSV input or article data. Aborting.")
             return -1, config_dict
 
         # Include days_back, scoring method & normalization, and max_per_author in default output filenames
         if reuse_article_data:
             print(f"Reusing article data from {csv_path}")
-            print(f"Ignoring Days Back, Match Authors, Use Substack API, Scoring Method, Normalize, and Max Retries (not relevant)")
+            print(f"Ignoring Days Back, Match Authors, Use Substack API, and Max Retries (not relevant)")
             default_extension = f"reused"
         else:
             print(f"Reading newsletter data from {csv_path}")
             default_extension = f"digest{days_back}d_s{2 if use_daily_average else 1}n{yesno(normalize)[0]}_a{max_per_author}"
-            if skip_rows>0 or max_rows>0: default_extension = default_extension+f"_rows{skip_rows+1}-{skip_rows+max_rows}"
+            if skip_rows>0 or max_rows>0: 
+                default_extension = default_extension+f"_rows{skip_rows+1}"
+                if max_rows>0: 
+                    default_extension = default_extension+f"-{skip_rows+max_rows}"
+                else:
+                    default_extension = default_extension+"-end"
 
         if timestamp: default_extension = default_extension+f".{run_time}"
         
@@ -1853,7 +2207,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         # Set default HTML output filename based on the CSV input name and HTML-specific configuration settings
         if not output_file or len(output_file) < 5:  
             # use a default name with the feature & wildcard counts
-            output_file = change_file_extension(output_path, default_extension+f".f{featured_count}w{include_wildcards}{'c' if collapse_categories else ''}.html")
+            output_file = change_file_extension(output_path, default_extension+f".{'j' if joint_authors else ''}f{'x' if expand_featured_for_ties else ''}{featured_count}w{include_wildcards}{'c' if collapse_categories else ''}.html")
         
         # Handle CSV filename defaults (updated KJS)
         if not csv_digest_file or len(csv_digest_file)<1:
@@ -1891,10 +2245,8 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
                 print(f"Will fetch article data via RSS for generating digest HTML.")
                 print(f"  List of newsletters: {csv_path}")
                 print(f"  Days to look back: {days_back}")
-                print(f"  Scoring method? {scoring_method}")
 
             # These are not currently prompted for, so show the values we're going to use
-            print(f"  Normalize scores? {yesno(normalize)}")
             if skip_rows>0: print(f"  Rows to skip at start of newsletter file: {skip_rows}")
             if max_rows>0:  print(f"  Rows to read{' after skipping' if skip_rows>0 else ''}: {max_rows}")
             if max_per_author>0: print(f"  Max articles per newsletter and author: {max_per_author}")
@@ -1909,24 +2261,29 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
                 if verbose: print("  Not saving article API call results to a temp folder.")
             print()
 
-        # These parameters are for generating the HTML, so always show them
-        print(f"Digest formatting options:")
+        # These parameters are for generating the HTML and output file, so always show them
+        collab_text=f"{yesno(joint_authors)}"
         feature_text=f"Top {featured_count} based on score" if featured_count>0 else "None"
         wildcard_text=f"{include_wildcards}" if include_wildcards>0 else "None"
-        print(f"  Featured Articles: {feature_text}")
-        print(f"  Wildcard Articles: {wildcard_text}")
+        print(f"\nDigest formatting options:")
+        print(f"  Highlight Jointly Authored Articles: {collab_text}")
+        print(f"  Number of Featured Articles: {feature_text}{' (may be more if there are ties)' if expand_featured_for_ties else ''}")
+        print(f"  Number of Wildcard Articles: {wildcard_text} (may be less)")
+        print(f"  Scoring method? {scoring_method}")
+        print(f"  Normalize scores? {yesno(normalize)}")
         print(f"  Show scores on non-featured articles? {yesno(show_scores)}")
+
         print(f"\nOutput file HTML: {output_file}")
         if len(csv_digest_file)>0: 
             print(f"Output file CSV: {csv_digest_file}")
         print()
 
     except Exception as e:
-        print(f"\n{RED_X_FAILURE_ICON}Exception in configuration setting:\n{e}\n")
+        print(f"\n{RED_X_FAILURE_ICON}EXCEPTION in configuration setting:\n{e}\n")
         if verbose: traceback.print_exc()
         return -1
 
-    config_dict = {'csv_path': csv_path, 'days_back': days_back, 'featured_count': featured_count, 'include_wildcards': include_wildcards, 'use_daily_average': use_daily_average, 'scoring_method': scoring_method,'show_scores': show_scores, 'use_Substack_API': use_Substack_API, 'verbose': verbose, 'max_retries': max_retries, 'match_authors': match_authors, 'max_per_author': max_per_author, 'output_file': output_file, 'csv_digest_file': csv_digest_file, 'reuse_article_data': reuse_article_data, 'normalize': normalize, 'temp_folder': temp_folder, 'expand_multiple_authors': expand_multiple_authors, 'skip_rows': skip_rows, 'max_rows': max_rows, 'collapse_categories': collapse_categories }
+    config_dict = {'csv_path': csv_path, 'days_back': days_back, 'featured_count': featured_count, 'include_wildcards': include_wildcards, 'use_daily_average': use_daily_average, 'scoring_method': scoring_method,'show_scores': show_scores, 'use_Substack_API': use_Substack_API, 'verbose': verbose, 'max_retries': max_retries, 'match_authors': match_authors, 'max_per_author': max_per_author, 'output_file': output_file, 'csv_digest_file': csv_digest_file, 'reuse_article_data': reuse_article_data, 'normalize': normalize, 'temp_folder': temp_folder, 'expand_multiple_authors': expand_multiple_authors, 'skip_rows': skip_rows, 'max_rows': max_rows, 'collapse_categories': collapse_categories, 'joint_authors': joint_authors, 'expand_featured_for_ties': expand_featured_for_ties }
     
     return 0, config_dict
 
@@ -1947,10 +2304,11 @@ def main():
     try:
         result, config_dict = get_configuration()
         if result<0:
-            print("\n\n{RED_X_FAILURE_ICON} Unable to get configuration for running digest processor. Stopping.")
+            print("\n\n{RED_X_FAILURE_ICON}ERROR: Unable to get configuration for running digest processor. Stopping.")
             return result
 
         verbose=config_dict['verbose']
+
         result=automated_digest (config_dict['csv_path'], config_dict['days_back'], 
             config_dict['featured_count'],    config_dict['include_wildcards'], 
             config_dict['use_daily_average'], config_dict['scoring_method'], config_dict['show_scores'], 
@@ -1959,7 +2317,8 @@ def main():
             config_dict['csv_digest_file'],   config_dict['reuse_article_data'], config_dict['normalize'],
             config_dict['temp_folder'],       config_dict['expand_multiple_authors'],
             config_dict['skip_rows'],         config_dict['max_rows'],
-            config_dict['collapse_categories'])
+            config_dict['collapse_categories'], config_dict['joint_authors'],
+            config_dict['expand_featured_for_ties'])
 
         if result >= 0:
             temp_folder=config_dict['temp_folder']
@@ -1973,11 +2332,11 @@ def main():
         return result
     
     except KeyboardInterrupt:
-        print("\n\n👋 Cancelled by user")
+        print("\n\n👋 Digest generator cancelled by user")
         return 0
 
     except Exception as e:
-        print(f"\n{RED_X_FAILURE_ICON}Error: {e}\n")
+        print(f"\n{RED_X_FAILURE_ICON}EXCEPTION: {e}\n")
         traceback.print_exc()
         return -1
     
