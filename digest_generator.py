@@ -98,7 +98,7 @@ FEATURE_ARTICLE_ICON="💟"  # or 💜 or ⭐ or 🌟?
 TOP_SCORE_ARTICLE_ICON="💯"
 CATEGORY_ARTICLE_ICON=""
 
-DG_VERSION="1.0.4 2025-12-12T0521" 
+DG_VERSION="1.0.4 2025-12-15T0438" 
 
 ''' Markdown link utilities '''
 def get_from_markdown(md_string:str, verbose=VERBOSE_DEFAULT):
@@ -2149,7 +2149,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         if reuse_article_data:
             # Days Back, Match Authors, Use Substack API, and Max Retries won't be used.
             # Warn the user if they have over-specified those that default to false.
-            if expand_multiple_authors or use_Substack_API or not match_authors or not normalize:
+            if expand_multiple_authors or use_Substack_API or not match_authors:
                 print(f"{WARNING_TRIANGLE_ICON}WARNING: Ignoring data extraction settings since -ra was specified")
                 #expand_multiple_authors=False
                 use_Substack_API=False
@@ -2163,6 +2163,7 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
             use_Substack_API = True
         
         use_daily_average = (args.scoring_choice == '2')
+        if verbose: print(f"Scoring choice: '{args.scoring_choice}', use_daily_average={use_daily_average}")
 
         # KJS file csv_path is dual purpose: It's either a list of newsletters 
         # or a set of previously saved article data.
@@ -2175,9 +2176,10 @@ def get_configuration (verbose=VERBOSE_DEFAULT):
         if reuse_article_data:
             print(f"Reusing article data from {csv_path}")
             print(f"Ignoring Days Back, Match Authors, Use Substack API, and Max Retries (not relevant)")
-            default_extension = f"reused"
+            default_extension = f"reused_s{2 if use_daily_average else 1}n{yesno(normalize)[0]}"
         else:
             print(f"Reading newsletter data from {csv_path}")
+            # KJS 2025-12-15 Add scoring settings to extension since we now support them in reuse mode
             default_extension = f"digest{days_back}d_s{2 if use_daily_average else 1}n{yesno(normalize)[0]}_a{max_per_author}"
             if skip_rows>0 or max_rows>0: 
                 default_extension = default_extension+f"_rows{skip_rows+1}"

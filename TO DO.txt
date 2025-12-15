@@ -1,0 +1,46 @@
+TO DO: Add a runstring option to control the raw score cap level or normalization basis? 
+Running it on my personal subscriptions brought over 200 (out of 5-600) articles which 
+all scored over 100. The 8 highest were HCR, all over 1000; max over 12,000. 
+Consider a log scale??
+Try it with normalization first.
+
+FEATURE: Support direct import of the CSV file created by Karen's Chrome extension, which has:
+Name, URL, RSS Feed, Author, Author Handle, Subscriber Count, Paid/Free, Membership Type, Description
+as line 1, vs. the digest standard which had:
+  Newsletter Name, Website URL, Category, Collections, Author, Substack Handle
+in this order:
+  Substack Handle, Publisher, Author, Newsletter Name, Website URL, Category
+(It can work without Category or Collections or Publisher.)
+
+INVESTIGATE: (from 202512010657 SWAI test run)
+  [286/537] Singing Our Body Electric (Caitlin Marie Connors @ourbodyelectric) ...
+⚠️ Warning: HTML word count 516 and RSS word count 480 differ by 36
+✅  - 1 article
+
+INVESTIGATE: (from 20251128T0716 test run)
+  [536/537] Human Input (Kaisa | Mama Knows AI @Mamaknowsai) ... - (no recent articles) - none within past 2 days, but should have found some with the long view. Had to disable name checking to get this to work, for now. Guess: the | in her name is messing up some parsing?
+
+INVESTIGATE: (from 20251123T0217 long-range digest run - should be fixed as of v1.0.2; Henna is now found, others still missing? re-export and re-run.)
+- No recent articles reported for Ishita Jaiswal, Sam Silverman, Dominika Michalska, Henna Vij, Rene Clayton, Tonie Marie Gordon. Verify if these are accurate (Henna and Dominika probably are; not sure about the others).
+- Ishita Jaiswal has an article in Ankur's Newsletter as second author 2024-02-29. Fixed newsletter link in workbook.
+- Sam Silverman has an article in This Isn't Fine as second author 2025-04-28. Updated newsletter link; try again.
+- Dominika Michalska has no profile posts yet.
+- Somya Sinha has changed profile and newsletter URL. Henna is still linked to the old newsletter, so that is why she was found. Need to run with updated export.
+- René Clayton's newsletter name was wrong.
+- Tonie Marie Gordon has no posts in her profile as of today.
+
+Not reproducible; ok in regression runs at 20251121T0602 and ok in v1.0.2 (data file issue, not code issue with Adrienne Lahens, DATA DIVAS, Majata Bouad, meghna rao, Karo (Product with Attitude), supercyberlicious)
+
+FEATURE: Add a count of the number of co-authors who are listed in the newsletter CSV file - or a separate column we can count that has only the names of the newsletter authors (excludes non-newsletter file co-authors). This would let us easily identify "collaborations" and potentially put them in their own featured section.
+
+FEATURE: Make category in headers on the Featured and Wildcard articles smarter. For instance, if there is no Category in the input CSV file, don't waste space putting Category: Uncategorized everywhere.
+
+FEATURE: Get restack counts and multiple author names from the HTML file (not the Substack API).
+
+FUNCTIONALITY: Automatically WRITE the draft post in Substack using the HTML output??
+
+FEATURE: Add hyperlinks to the newsletter for the user profile, using the Substack Handle
+
+FEATURE: Extend date options to allow specifying a specific start datetime & end datetime (will still be limited by how far back the RSS files go, about 20 articles regardless of timeframe desired)
+
+FEATURE: Add an option to group Additional Reading articles by author instead of by category?? (or within a category?)
