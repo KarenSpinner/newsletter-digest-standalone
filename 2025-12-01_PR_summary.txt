@@ -1,0 +1,12 @@
+2025-12-01 V1.0.3 PR notes
+
+- Added two new optional runstring arguments to control skipping N rows at the start of the newsletter file and capping the number of rows to be processed. Default=skip none, no maximum. This makes it easier and faster to test new additions to the end of a longer newsletter file, or to process it in chunks. Default output file names will include the row range, if a skip or max row value is specified.
+- Added an optional runstring option to collapse each section of the HTML page. This gives a quick overview of the distribution of the articles across the categories, and lets a reader jump more quickly to a category of interest. (This feature is not preserved when pasting into the Substack editor - all sections are expanded there.)
+- Added article counts to the Featured and Wildcard headers, for consistency.
+- Added Category to the engagement row for Featured and Wildcard articles. When someone likes a Featured or Wildcard article, knowing its category can help them quickly focus on other articles that might interest them.
+- Wildcard picks are now listed in descending order by raw score (similar to Featured), not in the order they were selected.
+- Fixed a reuse bug in detection of duplicates (created when -xma was used to save the article data)
+- Fixed a small bug with scores being shown on wildcard picks even when hide_scores (-hs runstring option) was configured.
+
+Known Limitations:
+- There appears to be a bug with matching one specific author name that contains a |. No articles are identified as matches for such a writer. Other author names with | work, though. This needs to be investigated further. Workaround: disable name matching for that writer in the newsletters file (leave Author cell blank on that row).

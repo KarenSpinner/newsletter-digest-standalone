@@ -1,0 +1,16 @@
+v1.0.4 PR
+
+- Fixed minor bug in adding skip_row and max_rows to the default file extension
+- Fixed minor bug in HTML formatting when an author's name includes a single quote (')
+- Fixed minor bug when reusing a CSV file that has an article with no summary
+- Scoring and normalization are now supported in reuse scenarios. Added _s#nY to default extension when reusing.
+- Save data collected so far if a keyboard interrupt is detected (program formerly stopped without saving)
+- Joint Articles: Added support for a Collaboration section which highlights articles jointly written by two or more authors from the newsletter list.
+- Added icons to designate jointly authored articles, feature articles, and top-scoring feature articles (100). Top-scoring articles which are also wildcards or which overflow from Featured will also get the top-scoring icon.
+- Option: Ties in Featured: If this option is enabled, and all of the featured articles have the maximum score, any other articles which also have the max score will be listed under Featured. This means the Featured section will have more articles than the number requested, but essentially they are tied, so it may be more fair to include them.
+- Author name highlighting: Author names are in bold if they are matched to any row of the newsletter file. Otherwise the names are in plain text. If there are no author names in the newsletter file, no names will be in bold.
+
+Known limitations:
+- Sparkle icon for jointly authored articles is only applied at present if the runstring option is enabled to group them in a separate section. In the future, the icon will also be applied to all other jointly authored articles, even if the -j option is not enabled.
+- On really big lists (500+) and really long time periods (2000 days), 1 article out of 8229 total 'got lost in the shuffle' when splitting and recombining the joint, featured, wildcard, and category lists. Needs to be investigated. Appears to be related to using the new -xf option.
+- On reuse, breaking apart a list of multiple authors to determine if it's a collaboration will not work well in cases where an individual collaborating author's Substack profile name contains an &. (Yes, there are some.)
